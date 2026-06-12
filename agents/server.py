@@ -311,11 +311,21 @@ async def start_demo(req: DemoStartRequest = DemoStartRequest()):
         env={**dict(__import__("os").environ), "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"},
     )
 
-    # Wait for completion (demo is fast, < 1s)
-    stdout, _ = pipeline_process.communicate(timeout=30)
+    # Wait for completion (pipeline takes ~40s with build)
+    stdout, _ = pipeline_process.communicate(timeout=120)
     pipeline_logs = stdout.strip().split("\n") if stdout else []
     exit_code = pipeline_process.returncode
     pipeline_process = None
+
+    # Broadcast final logs to WS clients
+    for ws in connected_clients[:]:
+        try:
+            import asyncio
+            asyncio.get_event_loop().create_task(
+                ws.send_text(json.dumps({"type": "complete", "exit_code": exit_code}))
+            )
+        except Exception:
+            pass
 
     # Find the new job ID from output
     job_id = None
@@ -329,8 +339,28 @@ async def start_demo(req: DemoStartRequest = DemoStartRequest()):
         "job_id": job_id,
         "exit_code": exit_code,
         "log_lines": len(pipeline_logs),
-        "logs": pipeline_logs[-20:],
+        "logs": pipeline_logs[-50:],
     }
+
+
+# === WebSocket: Real-time pipeline logs ===
+
+@app.websocket("/ws/pipeline")
+async def ws_pipeline(ws: WebSocket):
+    """WebSocket for real-time pipeline log streaming."""
+    await ws.accept()
+    connected_clients.append(ws)
+    # Send buffered logs
+    for line in pipeline_logs[-50:]:
+        await ws.send_text(json.dumps({"type": "log", "data": line}))
+    running = pipeline_process is not None and pipeline_process.poll() is None
+    await ws.send_text(json.dumps({"type": "status", "running": running}))
+    try:
+        while True:
+            await ws.receive_text()
+    except Exception:
+        if ws in connected_clients:
+            connected_clients.remove(ws)
 
 
 # === ROUTES: PRD ===
