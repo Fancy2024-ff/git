@@ -259,9 +259,19 @@ def codegen_agent(app: dict, prd_json: dict, output_dir: Path) -> Path:
         "name": app_name_en,
         "version": "1.0.0",
         "description": app["description_cn"],
-        "scripts": {"dev": "uni dev", "build:mp-weixin": "uni build -p mp-weixin", "build:mp-alipay": "uni build -p mp-alipay"},
-        "dependencies": {"vue": "^3.4.0", "pinia": "^2.1.0", "@dcloudio/uni-app": "^3.0.0"},
-        "devDependencies": {"typescript": "^5.5.0", "vite": "^5.0.0"}
+        "scripts": {"dev:mp-weixin": "uni -p mp-weixin", "build:mp-weixin": "uni build -p mp-weixin", "build:mp-alipay": "uni build -p mp-alipay"},
+        "dependencies": {"vue": "^3.5.13", "pinia": "^2.1.7"},
+        "devDependencies": {
+            "@dcloudio/uni-app": "3.0.0-alpha-5010320260611001",
+            "@dcloudio/uni-components": "3.0.0-alpha-5010320260611001",
+            "@dcloudio/uni-h5": "3.0.0-alpha-5010320260611001",
+            "@dcloudio/uni-mp-weixin": "3.0.0-alpha-5010320260611001",
+            "@dcloudio/uni-mp-alipay": "3.0.0-alpha-5010320260611001",
+            "@dcloudio/uni-mp-toutiao": "3.0.0-alpha-5010320260611001",
+            "@dcloudio/vite-plugin-uni": "3.0.0-alpha-5010320260611001",
+            "typescript": "^5.4.0",
+            "vite": "5.2.8",
+        }
     }, ensure_ascii=False, indent=2))
 
     # README.md
@@ -286,8 +296,8 @@ npm run build:mp-alipay
 ```
 """)
 
-    # manifest.json
-    _write(miniapp_dir / "manifest.json", json.dumps({
+    # manifest.json (in src/ for uni-app CLI)
+    _write(src_dir / "manifest.json", json.dumps({
         "name": app_name,
         "appid": "",
         "description": app["description_cn"],
@@ -298,8 +308,8 @@ npm run build:mp-alipay
         "mp-toutiao": {"appid": ""},
     }, ensure_ascii=False, indent=2))
 
-    # pages.json
-    _write(miniapp_dir / "pages.json", json.dumps({
+    # pages.json (in src/ for uni-app CLI)
+    _write(src_dir / "pages.json", json.dumps({
         "pages": [
             {"path": "pages/index/index", "style": {"navigationBarTitleText": "首页"}},
             {"path": "pages/form/form", "style": {"navigationBarTitleText": app["features_cn"][0]}},
@@ -406,7 +416,8 @@ async function handleSubmit() {{
 </template>
 
 <script setup lang="ts">
-import { ref, onLoad } from '@dcloudio/uni-app'
+import { ref } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
 
 const resultText = ref('AI 处理结果将在这里展示。连接后端 API 后将返回真实结果。')
 
@@ -516,6 +527,76 @@ export function request<T = any>(
     })
   })
 }
+""")
+
+    # vite.config.ts
+    _write(miniapp_dir / "vite.config.ts", """import { defineConfig } from 'vite'
+import uni from '@dcloudio/vite-plugin-uni'
+
+export default defineConfig({
+  plugins: [uni()],
+})
+""")
+
+    # tsconfig.json
+    _write(miniapp_dir / "tsconfig.json", json.dumps({
+        "compilerOptions": {
+            "target": "ESNext",
+            "module": "ESNext",
+            "moduleResolution": "bundler",
+            "strict": True,
+            "jsx": "preserve",
+            "sourceMap": True,
+            "lib": ["ESNext", "DOM"],
+            "types": ["@dcloudio/types"],
+            "paths": {"@/*": ["./src/*"]},
+        },
+        "include": ["src/**/*.ts", "src/**/*.vue"],
+    }, indent=2))
+
+    # index.html
+    _write(miniapp_dir / "index.html", """<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title></title>
+    <!--app-config-->
+  </head>
+  <body>
+    <div id="app"><!--app-html--></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
+""")
+
+    # src/main.ts
+    _write(src_dir / "main.ts", """import { createSSRApp } from 'vue'
+import { createPinia } from 'pinia'
+import App from './App.vue'
+
+export function createApp() {
+  const app = createSSRApp(App)
+  app.use(createPinia())
+  return { app }
+}
+""")
+
+    # src/App.vue
+    _write(src_dir / "App.vue", """<script setup lang="ts">
+</script>
+
+<template>
+  <view>
+    <page />
+  </view>
+</template>
+
+<style>
+page {
+  background: #f5f5f7;
+}
+</style>
 """)
 
     # docs
@@ -631,7 +712,8 @@ def qa_check_agent(miniapp_dir: Path, output_dir: Path) -> dict:
 
     # --- 1. 文件存在性检查 ---
     required_files = [
-        "package.json", "README.md", "manifest.json", "pages.json",
+        "package.json", "README.md", "vite.config.ts", "tsconfig.json", "index.html",
+        "src/manifest.json", "src/pages.json", "src/main.ts", "src/App.vue",
         "src/pages/index/index.vue", "src/pages/form/form.vue",
         "src/pages/result/result.vue", "src/pages/profile/profile.vue",
         "src/utils/request.ts",
@@ -723,7 +805,7 @@ def qa_check_agent(miniapp_dir: Path, output_dir: Path) -> dict:
 
     # --- 7. JSON 合法性检查 ---
     json_valid = True
-    for json_file in ["package.json", "manifest.json", "pages.json"]:
+    for json_file in ["package.json", "src/manifest.json", "src/pages.json"]:
         try:
             json.loads((miniapp_dir / json_file).read_text(encoding="utf-8-sig"))
         except Exception:
@@ -973,8 +1055,10 @@ def generate_human_actions(app: dict, job_id: str, output_dir: Path) -> str:
 
 def _write(path: Path, content: str):
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Write with UTF-8 BOM so Windows tools always recognize encoding correctly
-    with open(path, "w", encoding="utf-8-sig") as f:
+    # Use BOM only for .md files (Windows Notepad compatibility)
+    # JSON/TS/Vue/HTML must NOT have BOM (breaks parsers)
+    encoding = "utf-8-sig" if path.suffix == ".md" else "utf-8"
+    with open(path, "w", encoding=encoding) as f:
         f.write(content)
 
 
