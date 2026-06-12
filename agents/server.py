@@ -1,8 +1,9 @@
 """
-FastAPI backend for the MiniApp Factory dashboard.
-Exposes REST API + WebSocket for the Vue 3 frontend.
+MiniApp Factory – FastAPI backend (production).
+Zero duplicate routes. Each path+method defined exactly once.
 """
 
+import os
 import sys
 import json
 import asyncio
@@ -11,19 +12,27 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+import uvicorn
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-# Ensure agents/ is importable
+# ---------------------------------------------------------------------------
+# Path setup
+# ---------------------------------------------------------------------------
 sys.path.insert(0, str(Path(__file__).parent))
+from config.settings import DATA_DIR
 
-from config.settings import DATA_DIR, PRDS_DIR, PROJECTS_DIR, APPS_DIR, REPORTS_DIR
-from shared.models import ProjectStatus
-from shared.database import _load_db, list_projects, get_project
+SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
+OUTPUTS_DIR = DATA_DIR / "outputs"
+PLATFORMS_DIR = DATA_DIR / "platforms"
+PLATFORM_AUTH_DIR = DATA_DIR / "platform-auth"
+REAL_INPUTS_DIR = DATA_DIR / "real_inputs"
 
-app = FastAPI(title="MiniApp Factory API", version="0.1.0")
+# ---------------------------------------------------------------------------
+# App + CORS
+# ---------------------------------------------------------------------------
+app = FastAPI(title="MiniApp Factory API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,188 +42,200 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- State ---
+# ---------------------------------------------------------------------------
+# State
+# ---------------------------------------------------------------------------
 pipeline_process: Optional[subprocess.Popen] = None
+pipeline_job_id: Optional[str] = None
 pipeline_logs: list[str] = []
-connected_clients: list[WebSocket] = []
+connected_ws_clients: list[WebSocket] = []
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _generate_job_id() -> str:
+    """YYYYMMDD-XXXXXX (date + 6 random hex chars)."""
+    import secrets
+    return datetime.now().strftime("%Y%m%d") + "-" + secrets.token_hex(3)
 
 
-# === MODELS ===
+def _read_json(path: Path):
+    """Read JSON with BOM-safe encoding."""
+    return json.loads(path.read_text(encoding="utf-8-sig"))
+
+
+async def _broadcast(msg: dict):
+    """Send JSON message to all connected WebSocket clients."""
+    text = json.dumps(msg, ensure_ascii=False)
+    for ws in connected_ws_clients[:]:
+        try:
+            await ws.send_text(text)
+        except Exception:
+            if ws in connected_ws_clients:
+                connected_ws_clients.remove(ws)
+
+
+# ---------------------------------------------------------------------------
+# Models
+# ---------------------------------------------------------------------------
 
 class PipelineStartRequest(BaseModel):
-    category: str = "ai"
-    limit: int = 50
-    evaluate: bool = True
+    mode: str = "demo"
 
 
-class SourceConfig(BaseModel):
-    qimai_api_key: str = ""
-    sensortower_api_key: str = ""
-    wechat_appid: str = ""
-    alipay_appid: str = ""
-    douyin_appid: str = ""
+# ---------------------------------------------------------------------------
+# SECTION: Pipeline
+# ---------------------------------------------------------------------------
+
+@app.post("/api/pipeline/start")
+async def pipeline_start(req: PipelineStartRequest = PipelineStartRequest()):
+    """Start pipeline in background, return immediately."""
+    global pipeline_process, pipeline_job_id, pipeline_logs
+
+    if pipeline_process and pipeline_process.poll() is None:
+        raise HTTPException(409, "Pipeline already running")
+
+    # Validate real mode has data
+    if req.mode == "real":
+        apps_file = REAL_INPUTS_DIR / "apps.json"
+        if not apps_file.exists():
+            raise HTTPException(400, "No real input data: apps.json missing. Import apps first.")
+        apps = _read_json(apps_file)
+        if not apps:
+            raise HTTPException(400, "apps.json is empty. Import at least one app for real mode.")
+
+    # Generate job_id BEFORE starting
+    job_id = _generate_job_id()
+    pipeline_job_id = job_id
+    pipeline_logs = []
+
+    python_exe = sys.executable
+    cmd = [
+        python_exe, "-X", "utf8",
+        str(SCRIPTS_DIR / "run_demo_pipeline.py"),
+        "--mode", req.mode,
+        "--job-id", job_id,
+    ]
+
+    env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"}
+
+    pipeline_process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=str(Path(__file__).parent.parent),
+        env=env,
+    )
+
+    asyncio.get_event_loop().create_task(_stream_pipeline_output(job_id))
+
+    return {"accepted": True, "job_id": job_id, "mode": req.mode}
+
+async def _stream_pipeline_output(job_id: str):
+    """Read pipeline stdout line by line, broadcast via WebSocket."""
+    global pipeline_process
+
+    loop = asyncio.get_event_loop()
+
+    while pipeline_process and pipeline_process.poll() is None:
+        line = await loop.run_in_executor(None, pipeline_process.stdout.readline)
+        if not line:
+            break
+        line = line.rstrip()
+        pipeline_logs.append(line)
+        await _broadcast({"type": "log", "data": line, "job_id": job_id})
+
+    # Pipeline finished
+    exit_code = pipeline_process.returncode if pipeline_process else -1
+    success = exit_code == 0
+    await _broadcast({"type": "pipeline_finished", "job_id": job_id, "success": success})
+    # Clear process reference
+    # Note: keep pipeline_logs and pipeline_job_id for status queries
 
 
-# === ROUTES: Overview ===
-
-@app.get("/api/overview")
-def get_overview():
-    """Dashboard overview stats."""
-    db = _load_db()
-    projects = db.get("projects", {})
-
-    total = len(projects)
-    by_status = {}
-    for p in projects.values():
-        status = p.get("status", "unknown")
-        by_status[status] = by_status.get(status, 0) + 1
-
-    # Count PRDs
-    prd_count = len(list(PRDS_DIR.glob("*.json"))) if PRDS_DIR.exists() else 0
-
-    # Count generated projects
-    project_dirs = len(list(PROJECTS_DIR.iterdir())) if PROJECTS_DIR.exists() else 0
-
+@app.get("/api/pipeline/status")
+def pipeline_status():
+    """Current pipeline status."""
+    running = pipeline_process is not None and pipeline_process.poll() is None
     return {
-        "total_projects": total,
-        "by_status": by_status,
-        "prd_count": prd_count,
-        "generated_projects": project_dirs,
-        "pipeline_running": pipeline_process is not None and pipeline_process.poll() is None,
+        "running": running,
+        "job_id": pipeline_job_id,
+        "log_lines": len(pipeline_logs),
     }
 
 
-# === ROUTES: Opportunities ===
-
-@app.get("/api/opportunities")
-def get_opportunities():
-    """List all discovered opportunities from the database."""
-    db = _load_db()
-    projects = db.get("projects", {})
-
-    opportunities = []
-    for pid, p in projects.items():
-        opp = p.get("opportunity")
-        if opp:
-            opportunities.append({
-                "id": pid,
-                "app_name": opp.get("app", {}).get("name", ""),
-                "category": opp.get("app", {}).get("category", ""),
-                "downloads": opp.get("app", {}).get("downloads", 0),
-                "rating": opp.get("app", {}).get("rating", 0),
-                "gap_score": opp.get("gap_score", 0),
-                "missing_platforms": opp.get("missing_platforms", []),
-                "competition_level": opp.get("competition_level", ""),
-                "estimated_difficulty": opp.get("estimated_difficulty", ""),
-                "reason": opp.get("reason", ""),
-                "features": opp.get("app", {}).get("features", []),
-                "description": opp.get("app", {}).get("description", ""),
-                "status": p.get("status", "discovered"),
-            })
-
-    opportunities.sort(key=lambda x: x["gap_score"], reverse=True)
-    return {"opportunities": opportunities, "total": len(opportunities)}
+@app.post("/api/pipeline/stop")
+def pipeline_stop():
+    """Kill running pipeline."""
+    global pipeline_process
+    if pipeline_process and pipeline_process.poll() is None:
+        pipeline_process.terminate()
+        pipeline_process = None
+        return {"stopped": True, "job_id": pipeline_job_id}
+    raise HTTPException(409, "No pipeline running")
 
 
-# === ROUTES: Projects ===
+# ---------------------------------------------------------------------------
+# SECTION: WebSocket
+# ---------------------------------------------------------------------------
 
-@app.get("/api/projects")
-def get_projects():
-    """List all projects."""
-    db = _load_db()
-    projects = []
-    for pid, p in db.get("projects", {}).items():
-        projects.append({
-            "id": pid,
-            "app_name": p.get("app_name", ""),
-            "status": p.get("status", ""),
-            "project_path": p.get("project_path", ""),
-            "target_platforms": p.get("target_platforms", []),
-            "created_at": p.get("created_at", ""),
-            "updated_at": p.get("updated_at", ""),
-        })
-    return {"projects": projects}
+@app.websocket("/ws/pipeline")
+async def ws_pipeline(ws: WebSocket):
+    """Global WebSocket for pipeline log streaming."""
+    await ws.accept()
+    connected_ws_clients.append(ws)
 
+    # Send buffered logs
+    for line in pipeline_logs[-100:]:
+        await ws.send_text(json.dumps({"type": "log", "data": line, "job_id": pipeline_job_id}))
 
-@app.get("/api/projects/{project_id}")
-def get_project_detail(project_id: str):
-    """Get project detail including file tree."""
-    db = _load_db()
-    p = db.get("projects", {}).get(project_id)
-    if not p:
-        raise HTTPException(404, "Project not found")
+    # Send current status
+    running = pipeline_process is not None and pipeline_process.poll() is None
+    await ws.send_text(json.dumps({"type": "status", "running": running, "job_id": pipeline_job_id}))
 
-    result = dict(p)
-
-    # Build file tree if project path exists
-    project_path = Path(p.get("project_path", ""))
-    if project_path.exists():
-        files = []
-        for f in sorted(project_path.rglob("*")):
-            if f.is_file():
-                files.append({
-                    "path": str(f.relative_to(project_path)),
-                    "size": f.stat().st_size,
-                    "ext": f.suffix,
-                })
-        result["files"] = files
-    else:
-        result["files"] = []
-
-    return result
-
-
-@app.get("/api/projects/{project_id}/file")
-def get_project_file(project_id: str, path: str):
-    """Read a specific file from a project."""
-    db = _load_db()
-    p = db.get("projects", {}).get(project_id)
-    if not p:
-        raise HTTPException(404, "Project not found")
-
-    project_path = Path(p.get("project_path", ""))
-    file_path = project_path / path
-
-    # Security: ensure file is within project directory
     try:
-        file_path.resolve().relative_to(project_path.resolve())
-    except ValueError:
-        raise HTTPException(403, "Access denied")
-
-    if not file_path.exists():
-        raise HTTPException(404, "File not found")
-
-    content = file_path.read_text(encoding="utf-8", errors="replace")
-    return {"path": path, "content": content, "size": file_path.stat().st_size}
+        while True:
+            await ws.receive_text()  # keep-alive
+    except (WebSocketDisconnect, Exception):
+        if ws in connected_ws_clients:
+            connected_ws_clients.remove(ws)
 
 
-# === ROUTES: Jobs (from data/outputs/) ===
-
-OUTPUTS_DIR = DATA_DIR / "outputs"
-
+# ---------------------------------------------------------------------------
+# SECTION: Jobs CRUD (from OUTPUTS_DIR)
+# ---------------------------------------------------------------------------
 
 @app.get("/api/jobs")
 def list_jobs():
-    """List all demo pipeline jobs from data/outputs/, sorted by mtime (newest first)."""
+    """List all pipeline jobs, sorted newest first."""
     if not OUTPUTS_DIR.exists():
         return {"jobs": []}
     jobs = []
-    dirs = [d for d in OUTPUTS_DIR.iterdir() if d.is_dir()]
-    dirs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
+    dirs = sorted(
+        [d for d in OUTPUTS_DIR.iterdir() if d.is_dir()],
+        key=lambda d: d.stat().st_mtime,
+        reverse=True,
+    )
     for d in dirs:
-        job = {"id": d.name, "path": str(d)}
+        job: dict = {"id": d.name, "path": str(d)}
+        # QA report
         qa_file = d / "qa-report.json"
         if qa_file.exists():
-            qa = json.loads(qa_file.read_text(encoding="utf-8-sig"))
+            qa = _read_json(qa_file)
             job["qa_passed"] = qa.get("passed", False)
             job["build_verified"] = qa.get("checks", {}).get("build_verified", False)
+        # Candidate info
         cand_file = d / "candidate.json"
         if cand_file.exists():
-            cand = json.loads(cand_file.read_text(encoding="utf-8-sig"))
+            cand = _read_json(cand_file)
             job["app_name"] = cand.get("name_cn", cand.get("name", ""))
             job["app_name_en"] = cand.get("name", "")
-        artifacts = [f.name for f in d.iterdir() if f.is_file()]
-        job["artifacts"] = artifacts
+        # Artifacts list
+        job["artifacts"] = [f.name for f in d.iterdir() if f.is_file()]
         job["has_miniapp"] = (d / "generated" / "miniapp").exists()
         jobs.append(job)
     return {"jobs": jobs}
@@ -222,43 +243,45 @@ def list_jobs():
 
 @app.get("/api/jobs/latest")
 def get_latest_job():
-    """Get the most recent job by mtime."""
+    """Most recent job by modification time."""
     if not OUTPUTS_DIR.exists():
         raise HTTPException(404, "No jobs found")
     dirs = [d for d in OUTPUTS_DIR.iterdir() if d.is_dir()]
     if not dirs:
         raise HTTPException(404, "No jobs found")
     dirs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
-    return get_job(dirs[0].name)
+    return get_job_detail(dirs[0].name)
 
 
 @app.get("/api/jobs/{job_id}")
-def get_job(job_id: str):
-    """Get a specific job's details."""
+def get_job_detail(job_id: str):
+    """Full details for a specific job."""
     job_dir = OUTPUTS_DIR / job_id
     if not job_dir.exists():
         raise HTTPException(404, "Job not found")
 
-    result = {"id": job_id, "path": str(job_dir), "artifacts": {}}
+    result: dict = {"id": job_id, "path": str(job_dir), "artifacts": {}}
 
-    # Read all JSON/MD artifacts
     for f in job_dir.iterdir():
         if f.is_file():
             if f.suffix == ".json":
                 try:
-                    result["artifacts"][f.name] = json.loads(f.read_text(encoding="utf-8-sig"))
+                    result["artifacts"][f.name] = _read_json(f)
                 except Exception:
                     result["artifacts"][f.name] = {"error": "parse failed"}
             elif f.suffix == ".md":
                 result["artifacts"][f.name] = f.read_text(encoding="utf-8-sig")
 
-    # Miniapp file list
+    # Miniapp file tree
     miniapp_dir = job_dir / "generated" / "miniapp"
     if miniapp_dir.exists():
         result["miniapp_files"] = [
-            str(f.relative_to(miniapp_dir)) for f in miniapp_dir.rglob("*") if f.is_file() and "node_modules" not in str(f)
+            str(f.relative_to(miniapp_dir))
+            for f in miniapp_dir.rglob("*")
+            if f.is_file() and "node_modules" not in str(f)
         ]
         result["miniapp_path"] = str(miniapp_dir)
+
     return result
 
 
@@ -267,319 +290,125 @@ def get_job_artifact(job_id: str, file: str):
     """Read a specific artifact file from a job."""
     job_dir = OUTPUTS_DIR / job_id
     file_path = job_dir / file
-    # Security check
+
+    # Security: path must resolve within job_dir
     try:
         file_path.resolve().relative_to(job_dir.resolve())
     except ValueError:
         raise HTTPException(403, "Access denied")
+
     if not file_path.exists():
         raise HTTPException(404, f"Artifact not found: {file}")
+
     content = file_path.read_text(encoding="utf-8-sig")
     if file_path.suffix == ".json":
         return json.loads(content)
     return {"content": content}
 
 
-# === ROUTES: Demo Start ===
-
-class DemoStartRequest(BaseModel):
-    mode: str = "demo"
-
-
-@app.post("/api/demo/start")
-async def start_demo(req: DemoStartRequest = DemoStartRequest()):
-    """Start the pipeline in background, return immediately with job acceptance."""
-    global pipeline_process, pipeline_logs
-
-    if pipeline_process and pipeline_process.poll() is None:
-        raise HTTPException(409, "Pipeline already running")
-
-    pipeline_logs = []
-    scripts_dir = Path(__file__).parent.parent / "scripts"
-    python_exe = sys.executable
-
-    cmd = [python_exe, "-X", "utf8", str(scripts_dir / "run_demo_pipeline.py"), "--mode", req.mode]
-
-    pipeline_process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        cwd=str(Path(__file__).parent.parent),
-        env={**dict(__import__("os").environ), "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"},
-    )
-
-    # Start background reader that streams to WebSocket
-    asyncio.get_event_loop().create_task(_stream_pipeline_output())
-
-    return {"accepted": True, "mode": req.mode, "pid": pipeline_process.pid}
-
-
-async def _stream_pipeline_output():
-    """Read pipeline stdout line by line, broadcast to WS clients, detect completion."""
-    global pipeline_process, pipeline_logs
-    import asyncio as _aio
-
-    loop = _aio.get_event_loop()
-    job_id = None
-
-    while pipeline_process and pipeline_process.poll() is None:
-        line = await loop.run_in_executor(None, pipeline_process.stdout.readline)
-        if not line:
-            break
-        line = line.rstrip()
-        pipeline_logs.append(line)
-
-        # Extract job_id
-        if "Job ID:" in line and not job_id:
-            job_id = line.split("Job ID:")[-1].strip()
-
-        # Broadcast to WS clients
-        msg = json.dumps({"type": "log", "data": line, "job_id": job_id})
-        for ws in connected_clients[:]:
-            try:
-                await ws.send_text(msg)
-            except Exception:
-                connected_clients.remove(ws)
-
-    # Pipeline finished
-    exit_code = pipeline_process.returncode if pipeline_process else -1
-    pipeline_process = None
-
-    # Find job_id from logs if not found yet
-    if not job_id:
-        for l in pipeline_logs:
-            if "Job ID:" in l:
-                job_id = l.split("Job ID:")[-1].strip()
-                break
-
-    # Broadcast completion
-    complete_msg = json.dumps({"type": "pipeline_finished", "job_id": job_id, "exit_code": exit_code, "success": exit_code == 0})
-    for ws in connected_clients[:]:
-        try:
-            await ws.send_text(complete_msg)
-        except Exception:
-            connected_clients.remove(ws)
-
-
-# === ROUTES: Pipeline Status ===
-
-@app.get("/api/pipeline/status")
-def get_pipeline_status():
-    """Check if pipeline is running."""
-    running = pipeline_process is not None and pipeline_process.poll() is None
-    return {"running": running, "log_lines": len(pipeline_logs), "logs": pipeline_logs[-30:]}
-
-
-# === WebSocket: Real-time pipeline logs ===
-
-@app.websocket("/ws/pipeline")
-async def ws_pipeline(ws: WebSocket):
-    """WebSocket for real-time pipeline log streaming."""
-    await ws.accept()
-    connected_clients.append(ws)
-    # Send buffered logs
-    for line in pipeline_logs[-50:]:
-        await ws.send_text(json.dumps({"type": "log", "data": line}))
-    running = pipeline_process is not None and pipeline_process.poll() is None
-    await ws.send_text(json.dumps({"type": "status", "running": running}))
-    try:
-        while True:
-            await ws.receive_text()
-    except Exception:
-        if ws in connected_clients:
-            connected_clients.remove(ws)
-
-
-# === ROUTES: Platform Registry ===
-
-PLATFORMS_DIR = DATA_DIR / "platforms"
-
+# ---------------------------------------------------------------------------
+# SECTION: Platforms
+# ---------------------------------------------------------------------------
 
 @app.get("/api/platforms")
 def get_platforms():
-    """Get platform registry."""
+    """Read platform registry."""
     reg_file = PLATFORMS_DIR / "platform-registry.json"
     if not reg_file.exists():
         return {"platforms": []}
-    platforms = json.loads(reg_file.read_text(encoding="utf-8"))
+    platforms = _read_json(reg_file)
     return {"platforms": platforms, "total": len(platforms)}
 
 
-# === ROUTES: PRD ===
+# ---------------------------------------------------------------------------
+# SECTION: Platform Auth
+# ---------------------------------------------------------------------------
 
-@app.get("/api/prds")
-def list_prds():
-    """List all generated PRDs."""
-    if not PRDS_DIR.exists():
-        return {"prds": []}
-
-    prds = []
-    for f in sorted(PRDS_DIR.glob("*.json"), reverse=True):
-        try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-            prds.append({
-                "filename": f.name,
-                "app_name": data.get("app_name", f.stem),
-                "summary": data.get("summary", "")[:100],
-                "features_count": len(data.get("core_features", [])),
-                "feasibility_score": data.get("feasibility_score", 0),
-                "created_at": data.get("created_at", ""),
-            })
-        except (json.JSONDecodeError, Exception):
-            continue
-
-    return {"prds": prds}
-
-
-@app.get("/api/prds/{filename}")
-def get_prd_detail(filename: str):
-    """Get full PRD content."""
-    filepath = PRDS_DIR / filename
-    if not filepath.exists():
-        raise HTTPException(404, "PRD not found")
-
-    data = json.loads(filepath.read_text(encoding="utf-8"))
-    return data
-
-
-# === ROUTES: Pipeline Control ===
-
-@app.get("/api/pipeline/status")
-def pipeline_status():
-    """Get current pipeline status."""
-    running = pipeline_process is not None and pipeline_process.poll() is None
-    return {
-        "running": running,
-        "logs": pipeline_logs[-100:],  # Last 100 lines
-        "log_count": len(pipeline_logs),
+@app.get("/api/platform-auth/status")
+def get_platform_auth_status():
+    """Check auth config status for each platform (never exposes secrets)."""
+    platform_configs = {
+        "wechat": {"name": "微信小程序", "required": ["appid", "private_key_path"]},
+        "telegram": {"name": "Telegram Mini Apps", "required": ["bot_token", "webapp_url"]},
+        "discord": {"name": "Discord Activities", "required": ["application_id", "activity_url"]},
     }
 
+    platforms_status = []
+    for plat_id, meta in platform_configs.items():
+        config_file = PLATFORM_AUTH_DIR / f"{plat_id}.json"
+        configured = False
+        can_upload = False
+        can_submit = False
+        missing: list[str] = meta["required"][:]
 
-@app.post("/api/pipeline/start")
-async def start_pipeline(req: PipelineStartRequest):
-    """Start the pipeline in a background process."""
-    global pipeline_process, pipeline_logs
+        if config_file.exists():
+            try:
+                config = _read_json(config_file)
+                missing = [f for f in meta["required"] if not config.get(f)]
+                configured = len(missing) == 0
+                can_upload = configured and config.get("upload_enabled", False)
+                can_submit = configured and config.get("submit_review_enabled", False)
+            except Exception:
+                missing = meta["required"][:]
 
-    if pipeline_process and pipeline_process.poll() is None:
-        raise HTTPException(409, "Pipeline already running")
+        platforms_status.append({
+            "platform_id": plat_id,
+            "platform_name": meta["name"],
+            "configured": configured,
+            "can_upload": can_upload,
+            "can_submit_review": can_submit,
+            "missing_config": missing,
+        })
 
-    pipeline_logs = []
-    scripts_dir = Path(__file__).parent.parent / "scripts"
-    venv_python = Path(__file__).parent / ".venv" / "Scripts" / "python.exe"
-
-    cmd = [
-        str(venv_python), "-X", "utf8",
-        str(scripts_dir / "test_full_pipeline.py"),
-    ]
-
-    pipeline_process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        cwd=str(Path(__file__).parent.parent),
-        env={**dict(__import__("os").environ), "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"},
-    )
-
-    # Start reading output in background
-    asyncio.get_event_loop().create_task(_read_pipeline_output())
-
-    return {"message": "Pipeline started", "pid": pipeline_process.pid}
+    return {"platforms": platforms_status}
 
 
-@app.post("/api/pipeline/stop")
-def stop_pipeline():
-    """Stop the running pipeline."""
-    global pipeline_process
-    if pipeline_process and pipeline_process.poll() is None:
-        pipeline_process.terminate()
-        pipeline_process = None
-        return {"message": "Pipeline stopped"}
-    return {"message": "No pipeline running"}
-
-
-async def _read_pipeline_output():
-    """Read pipeline stdout and broadcast to WebSocket clients."""
-    global pipeline_process
-    if not pipeline_process:
-        return
-
-    loop = asyncio.get_event_loop()
-    while pipeline_process and pipeline_process.poll() is None:
-        line = await loop.run_in_executor(None, pipeline_process.stdout.readline)
-        if line:
-            line = line.rstrip()
-            pipeline_logs.append(line)
-            # Broadcast to connected WebSocket clients
-            for ws in connected_clients[:]:
-                try:
-                    await ws.send_text(json.dumps({"type": "log", "data": line}))
-                except Exception:
-                    connected_clients.remove(ws)
-
-
-# === ROUTES: Data Sources ===
-
-@app.get("/api/sources")
-def get_sources():
-    """Get configured data source info."""
-    from config.settings import QIMAI_API_KEY, SENSORTOWER_API_KEY, WECHAT_APPID, ALIPAY_APPID, DOUYIN_APPID
-    return {
-        "qimai": {"configured": bool(QIMAI_API_KEY), "key_preview": QIMAI_API_KEY[:8] + "..." if QIMAI_API_KEY else ""},
-        "sensortower": {"configured": bool(SENSORTOWER_API_KEY), "key_preview": SENSORTOWER_API_KEY[:8] + "..." if SENSORTOWER_API_KEY else ""},
-        "wechat": {"configured": bool(WECHAT_APPID), "appid": WECHAT_APPID},
-        "alipay": {"configured": bool(ALIPAY_APPID), "appid": ALIPAY_APPID},
-        "douyin": {"configured": bool(DOUYIN_APPID), "appid": DOUYIN_APPID},
-    }
-
-
-# === WebSocket ===
-
-@app.websocket("/ws/pipeline")
-async def websocket_pipeline(ws: WebSocket):
-    """WebSocket for real-time pipeline logs."""
-    await ws.accept()
-    connected_clients.append(ws)
-
-    # Send existing logs
-    for log in pipeline_logs[-50:]:
-        await ws.send_text(json.dumps({"type": "log", "data": log}))
-
-    # Send current status
-    running = pipeline_process is not None and pipeline_process.poll() is None
-    await ws.send_text(json.dumps({"type": "status", "running": running}))
+@app.post("/api/platforms/wechat/upload")
+def wechat_upload():
+    """Attempt WeChat upload – fails gracefully if not configured."""
+    config_file = PLATFORM_AUTH_DIR / "wechat.json"
+    if not config_file.exists():
+        return {"upload_passed": False, "reason": "wechat.json not found in platform-auth"}
 
     try:
-        while True:
-            await ws.receive_text()  # Keep alive
-    except WebSocketDisconnect:
-        connected_clients.remove(ws)
+        config = _read_json(config_file)
+    except Exception as e:
+        return {"upload_passed": False, "reason": f"config parse error: {e}"}
+
+    if not config.get("appid") or not config.get("private_key_path"):
+        return {"upload_passed": False, "reason": "appid or private_key_path missing"}
+
+    if not config.get("upload_enabled"):
+        return {"upload_passed": False, "reason": "upload_enabled is false"}
+
+    import shutil
+    if not shutil.which("npx"):
+        return {"upload_passed": False, "reason": "npx not found on PATH"}
+
+    return {
+        "upload_passed": False,
+        "reason": "miniprogram-ci integration pending",
+        "config_valid": True,
+    }
 
 
-# === ROUTES: Real Inputs ===
-
-REAL_INPUTS_DIR = DATA_DIR / "real_inputs"
-
+# ---------------------------------------------------------------------------
+# SECTION: Real Inputs
+# ---------------------------------------------------------------------------
 
 @app.get("/api/real-inputs/apps")
 def get_real_inputs():
-    """Get imported real apps."""
+    """Get imported real app list."""
     apps_file = REAL_INPUTS_DIR / "apps.json"
     if not apps_file.exists():
         return {"apps": [], "exists": False}
-    apps = json.loads(apps_file.read_text(encoding="utf-8-sig"))
+    apps = _read_json(apps_file)
     return {"apps": apps, "exists": True}
 
 
 @app.post("/api/real-inputs/apps")
-async def save_real_inputs(request):
+async def save_real_inputs(request: Request):
     """Save real app data."""
-    from starlette.requests import Request
     body = await request.body()
     data = json.loads(body)
     apps = data if isinstance(data, list) else data.get("apps", [])
@@ -590,102 +419,55 @@ async def save_real_inputs(request):
     return {"saved": len(apps)}
 
 
-# === ROUTES: Platform Auth ===
+# ---------------------------------------------------------------------------
+# SECTION: Overview
+# ---------------------------------------------------------------------------
 
-PLATFORM_AUTH_DIR = DATA_DIR / "platform-auth"
+@app.get("/api/overview")
+def get_overview():
+    """Dashboard stats."""
+    # Count jobs
+    job_count = 0
+    if OUTPUTS_DIR.exists():
+        job_count = sum(1 for d in OUTPUTS_DIR.iterdir() if d.is_dir())
 
+    # Count real inputs
+    apps_file = REAL_INPUTS_DIR / "apps.json"
+    real_apps_count = 0
+    if apps_file.exists():
+        try:
+            real_apps_count = len(_read_json(apps_file))
+        except Exception:
+            pass
 
-@app.get("/api/platform-auth/status")
-def get_platform_auth_status():
-    """Get platform auth configuration status (never expose actual keys)."""
-    platforms_status = []
-
-    # Check each platform's auth config
-    platform_configs = {
-        "wechat": {"name": "微信小程序", "required": ["appid", "private_key_path"]},
-        "telegram": {"name": "Telegram Mini Apps", "required": ["bot_token", "webapp_url"]},
-        "discord": {"name": "Discord Activities", "required": ["application_id", "activity_url"]},
-    }
-
-    for plat_id, meta in platform_configs.items():
-        config_file = PLATFORM_AUTH_DIR / f"{plat_id}.json"
-        configured = False
-        can_upload = False
-        can_submit = False
-        missing = []
-
-        if config_file.exists():
+    # Platform auth status
+    platforms_configured = 0
+    for name in ("wechat", "telegram", "discord"):
+        cf = PLATFORM_AUTH_DIR / f"{name}.json"
+        if cf.exists():
             try:
-                config = json.loads(config_file.read_text(encoding="utf-8-sig"))
-                missing = [f for f in meta["required"] if not config.get(f)]
-                configured = len(missing) == 0
-                can_upload = configured and config.get("upload_enabled", False)
-                can_submit = configured and config.get("submit_review_enabled", False)
+                c = _read_json(cf)
+                if c.get("appid") or c.get("bot_token") or c.get("application_id"):
+                    platforms_configured += 1
             except Exception:
-                missing = meta["required"]
+                pass
 
-        else:
-            missing = meta["required"]
+    running = pipeline_process is not None and pipeline_process.poll() is None
 
-        platforms_status.append({
-            "platform_id": plat_id,
-            "platform_name": meta["name"],
-            "configured": configured,
-            "can_upload": can_upload,
-            "can_submit_review": can_submit,
-            "can_release": False,
-            "missing_config": missing,
-            "one_time_setup": [
-                {"name": f, "done": f not in missing, "once": True}
-                for f in meta["required"]
-            ],
-            "agent_actions": [
-                {"name": "自动构建", "enabled": True},
-                {"name": "自动生成审核材料", "enabled": True},
-                {"name": "自动上传代码", "enabled": can_upload},
-            ],
-            "human_actions": [
-                {"name": "最终提交审核", "required": True, "reason": "平台需管理员确认"}
-            ],
-        })
-
-    return {"platforms": platforms_status}
-
-
-@app.post("/api/platforms/wechat/upload")
-def upload_wechat():
-    """Attempt to upload to WeChat via miniprogram-ci."""
-    config_file = PLATFORM_AUTH_DIR / "wechat.json"
-    if not config_file.exists():
-        return {"upload_passed": False, "reason": "wechat auth config missing: data/platform-auth/wechat.json"}
-
-    try:
-        config = json.loads(config_file.read_text(encoding="utf-8-sig"))
-    except Exception as e:
-        return {"upload_passed": False, "reason": f"config parse error: {e}"}
-
-    if not config.get("appid") or not config.get("private_key_path"):
-        return {"upload_passed": False, "reason": "appid or private_key_path not configured"}
-
-    if not config.get("upload_enabled"):
-        return {"upload_passed": False, "reason": "upload_enabled is false in config"}
-
-    # Check if miniprogram-ci is available
-    import shutil
-    if not shutil.which("npx"):
-        return {"upload_passed": False, "reason": "npx not available"}
-
-    # TODO: Actually call miniprogram-ci here when configured
     return {
-        "upload_passed": False,
-        "reason": "miniprogram-ci upload not yet implemented (auth configured but CI integration pending)",
-        "config_valid": True,
-        "appid": config["appid"][:6] + "***",
+        "total_jobs": job_count,
+        "real_apps_imported": real_apps_count,
+        "platforms_configured": platforms_configured,
+        "pipeline_running": running,
+        "current_job_id": pipeline_job_id if running else None,
     }
 
 
-# === Run ===
+# ---------------------------------------------------------------------------
+# Entrypoint
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+
+

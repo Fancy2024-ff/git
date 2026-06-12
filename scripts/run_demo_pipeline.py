@@ -1347,6 +1347,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["demo", "real"], default="demo", help="demo: sample data, real: imported data")
+    parser.add_argument("--job-id", default=None, help="Pre-assigned job ID (from server)")
     args = parser.parse_args()
     mode = args.mode
 
@@ -1379,8 +1380,11 @@ def main():
     best_app, best_analysis = scored[0]
     p(f"\n  ★ 选中：{best_app['name_cn']}（评分 {best_analysis['demand_score']}）")
 
-    # Create job
-    job_id = datetime.now().strftime("%Y%m%d") + "-" + str(uuid.uuid4())[:6]
+    # Create job (use pre-assigned ID if provided by server)
+    if args.job_id:
+        job_id = args.job_id
+    else:
+        job_id = datetime.now().strftime("%Y%m%d") + "-" + str(uuid.uuid4())[:6]
     output_dir = OUTPUTS_DIR / job_id
     output_dir.mkdir(parents=True, exist_ok=True)
     p(f"  Job ID: {job_id}")
