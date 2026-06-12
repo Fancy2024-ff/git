@@ -1,7 +1,7 @@
-import type { JobSummary, JobDetail, DemoResult } from '../types/job'
+import type { JobSummary, JobDetail } from '../types/job'
 
-const BASE = 'http://localhost:8000'
-const WS_BASE = 'ws://localhost:8000'
+const BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const WS_BASE = import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8000'
 
 async function get<T = any>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`)
@@ -19,27 +19,31 @@ async function post<T = any>(path: string, body?: any): Promise<T> {
   return res.json()
 }
 
+export interface PipelineStartResult {
+  accepted: boolean
+  job_id: string
+  mode: string
+}
+
 export const api = {
   getJobs: () => get<{ jobs: JobSummary[] }>('/api/jobs'),
   getLatestJob: () => get<JobDetail>('/api/jobs/latest'),
   getJob: (id: string) => get<JobDetail>(`/api/jobs/${id}`),
-  startPipeline: (mode: string = 'demo') => post<{ accepted: boolean; mode: string; pid: number }>('/api/demo/start', { mode }),
+  startPipeline: (mode: string = 'demo') => post<PipelineStartResult>('/api/pipeline/start', { mode }),
+  stopPipeline: () => post('/api/pipeline/stop'),
+  getPipelineStatus: () => get<{ running: boolean; job_id: string | null; log_lines: number }>('/api/pipeline/status'),
   getRealInputs: () => get<{ apps: any[]; exists: boolean }>('/api/real-inputs/apps'),
   saveRealInputs: (apps: any[]) => post('/api/real-inputs/apps', apps),
   getPlatforms: () => get<{ platforms: any[]; total: number }>('/api/platforms'),
   getPlatformAuth: () => get<{ platforms: any[] }>('/api/platform-auth/status'),
   uploadWechat: () => post<{ upload_passed: boolean; reason: string }>('/api/platforms/wechat/upload'),
-  getPipelineStatus: () => get<{ running: boolean; log_lines: number; logs: string[] }>('/api/pipeline/status'),
 }
 
-export function connectPipelineWS(onMessage: (data: any) => void): WebSocket {
-  const ws = new WebSocket(`${WS_BASE}/ws/pipeline`)
+export function connectPipelineWS(jobId: string, onMessage: (data: any) => void): WebSocket {
+  const ws = new WebSocket(`${WS_BASE}/ws/pipeline/${jobId}`)
   ws.onmessage = (e) => {
     try { onMessage(JSON.parse(e.data)) } catch {}
   }
   ws.onerror = () => {}
-  ws.onclose = () => {
-    setTimeout(() => connectPipelineWS(onMessage), 3000)
-  }
   return ws
 }

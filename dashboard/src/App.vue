@@ -10,7 +10,7 @@ import OverviewPanel from './components/OverviewPanel.vue'
 import PipelinePanel from './components/PipelinePanel.vue'
 import PRDPanel from './components/PRDPanel.vue'
 import ListingPanel from './components/ListingPanel.vue'
-import HumanStepsPanel from './components/HumanStepsPanel.vue'
+import SubmitCenterPanel from './components/SubmitCenterPanel.vue'
 import FilesPanel from './components/FilesPanel.vue'
 import LogsPanel from './components/LogsPanel.vue'
 import BossViewPanel from './components/BossViewPanel.vue'
@@ -68,13 +68,34 @@ async function startPipeline() {
   logs.value = []
   activeTab.value = 'logs'
   try {
+    if (mode.value === 'real') {
+      const inputs = await api.getRealInputs()
+      if (!inputs.exists || inputs.apps.length === 0) {
+        error.value = '生产运行需要先导入真实 App 数据，请先进入「导入」页面添加数据。'
+        activeTab.value = 'import'
+        running.value = false
+        return
+      }
+    }
     const res = await api.startPipeline(mode.value)
     if (!res.accepted) {
       error.value = 'Pipeline rejected'
       running.value = false
+      return
     }
-    // Pipeline runs in background. Logs arrive via WebSocket.
-    // Do NOT overwrite logs here. Completion handled by WS 'pipeline_finished' event.
+    if (res.job_id) {
+      connectPipelineWS(res.job_id, (msg) => {
+        if (msg.type === 'log' || msg.type === 'step_log') logs.value.push(msg.data)
+        if (msg.type === 'pipeline_finished') {
+          running.value = false
+          if (msg.job_id) {
+            selectJob(msg.job_id)
+            loadJobs()
+            activeTab.value = 'overview'
+          }
+        }
+      })
+    }
   } catch (e: any) {
     error.value = `API error: ${e.message}`
     running.value = false
@@ -84,17 +105,6 @@ async function startPipeline() {
 onMounted(async () => {
   await loadJobs()
   await loadLatest()
-  connectPipelineWS((msg) => {
-    if (msg.type === 'log') logs.value.push(msg.data)
-    if (msg.type === 'pipeline_finished') {
-      running.value = false
-      if (msg.job_id) {
-        selectJob(msg.job_id)
-        loadJobs()
-        activeTab.value = 'overview'
-      }
-    }
-  })
 })
 </script>
 
@@ -130,7 +140,7 @@ onMounted(async () => {
           <PipelinePanel v-if="activeTab === 'pipeline'" :job="currentJob" />
           <PRDPanel v-if="activeTab === 'prd'" :job="currentJob" />
           <ListingPanel v-if="activeTab === 'listing'" :job="currentJob" />
-          <HumanStepsPanel v-if="activeTab === 'actions'" :job="currentJob" />
+          <SubmitCenterPanel v-if="activeTab === 'actions'" />
           <FilesPanel v-if="activeTab === 'files'" :job="currentJob" />
           <PlatformsPanel v-if="activeTab === 'platforms'" />
           <LogsPanel v-if="activeTab === 'logs'" :logs="logs" />

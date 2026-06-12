@@ -48,7 +48,8 @@ app.add_middleware(
 pipeline_process: Optional[subprocess.Popen] = None
 pipeline_job_id: Optional[str] = None
 pipeline_logs: list[str] = []
-connected_ws_clients: list[WebSocket] = []
+# WebSocket clients keyed by job_id (or "__global__" for legacy)
+ws_clients: dict[str, list[WebSocket]] = {}
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -65,15 +66,23 @@ def _read_json(path: Path):
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
-async def _broadcast(msg: dict):
-    """Send JSON message to all connected WebSocket clients."""
+async def _broadcast(msg: dict, job_id: str = None):
+    """Send JSON message to WebSocket clients for a specific job (or all if no job_id)."""
     text = json.dumps(msg, ensure_ascii=False)
-    for ws in connected_ws_clients[:]:
-        try:
-            await ws.send_text(text)
-        except Exception:
-            if ws in connected_ws_clients:
-                connected_ws_clients.remove(ws)
+    # Send to job-specific clients
+    if job_id and job_id in ws_clients:
+        for ws in ws_clients[job_id][:]:
+            try:
+                await ws.send_text(text)
+            except Exception:
+                ws_clients[job_id].remove(ws)
+    # Also send to global clients
+    if "__global__" in ws_clients:
+        for ws in ws_clients["__global__"][:]:
+            try:
+                await ws.send_text(text)
+            except Exception:
+                ws_clients["__global__"].remove(ws)
 
 
 # ---------------------------------------------------------------------------
@@ -147,14 +156,12 @@ async def _stream_pipeline_output(job_id: str):
             break
         line = line.rstrip()
         pipeline_logs.append(line)
-        await _broadcast({"type": "log", "data": line, "job_id": job_id})
+        await _broadcast({"type": "step_log", "data": line, "job_id": job_id, "message": line}, job_id=job_id)
 
     # Pipeline finished
     exit_code = pipeline_process.returncode if pipeline_process else -1
     success = exit_code == 0
-    await _broadcast({"type": "pipeline_finished", "job_id": job_id, "success": success})
-    # Clear process reference
-    # Note: keep pipeline_logs and pipeline_job_id for status queries
+    await _broadcast({"type": "pipeline_finished", "job_id": job_id, "success": success}, job_id=job_id)
 
 
 @app.get("/api/pipeline/status")
@@ -183,26 +190,50 @@ def pipeline_stop():
 # SECTION: WebSocket
 # ---------------------------------------------------------------------------
 
-@app.websocket("/ws/pipeline")
-async def ws_pipeline(ws: WebSocket):
-    """Global WebSocket for pipeline log streaming."""
+@app.websocket("/ws/pipeline/{job_id}")
+async def ws_pipeline_job(ws: WebSocket, job_id: str):
+    """Per-job WebSocket for pipeline log streaming."""
     await ws.accept()
-    connected_ws_clients.append(ws)
+    if job_id not in ws_clients:
+        ws_clients[job_id] = []
+    ws_clients[job_id].append(ws)
 
-    # Send buffered logs
-    for line in pipeline_logs[-100:]:
-        await ws.send_text(json.dumps({"type": "log", "data": line, "job_id": pipeline_job_id}))
+    # Send buffered logs for this job
+    if pipeline_job_id == job_id:
+        for line in pipeline_logs[-100:]:
+            await ws.send_text(json.dumps({"type": "step_log", "data": line, "job_id": job_id, "message": line}))
 
-    # Send current status
+    running = pipeline_process is not None and pipeline_process.poll() is None and pipeline_job_id == job_id
+    await ws.send_text(json.dumps({"type": "status", "running": running, "job_id": job_id}))
+
+    try:
+        while True:
+            await ws.receive_text()
+    except (WebSocketDisconnect, Exception):
+        if job_id in ws_clients and ws in ws_clients[job_id]:
+            ws_clients[job_id].remove(ws)
+
+
+@app.websocket("/ws/pipeline")
+async def ws_pipeline_global(ws: WebSocket):
+    """Global WebSocket (deprecated, use /ws/pipeline/{job_id})."""
+    await ws.accept()
+    if "__global__" not in ws_clients:
+        ws_clients["__global__"] = []
+    ws_clients["__global__"].append(ws)
+
+    for line in pipeline_logs[-50:]:
+        await ws.send_text(json.dumps({"type": "step_log", "data": line, "job_id": pipeline_job_id}))
+
     running = pipeline_process is not None and pipeline_process.poll() is None
     await ws.send_text(json.dumps({"type": "status", "running": running, "job_id": pipeline_job_id}))
 
     try:
         while True:
-            await ws.receive_text()  # keep-alive
+            await ws.receive_text()
     except (WebSocketDisconnect, Exception):
-        if ws in connected_ws_clients:
-            connected_ws_clients.remove(ws)
+        if ws in ws_clients.get("__global__", []):
+            ws_clients["__global__"].remove(ws)
 
 
 # ---------------------------------------------------------------------------
