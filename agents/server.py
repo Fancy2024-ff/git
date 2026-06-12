@@ -363,6 +363,21 @@ async def ws_pipeline(ws: WebSocket):
             connected_clients.remove(ws)
 
 
+# === ROUTES: Platform Registry ===
+
+PLATFORMS_DIR = DATA_DIR / "platforms"
+
+
+@app.get("/api/platforms")
+def get_platforms():
+    """Get platform registry."""
+    reg_file = PLATFORMS_DIR / "platform-registry.json"
+    if not reg_file.exists():
+        return {"platforms": []}
+    platforms = json.loads(reg_file.read_text(encoding="utf-8"))
+    return {"platforms": platforms, "total": len(platforms)}
+
+
 # === ROUTES: PRD ===
 
 @app.get("/api/prds")

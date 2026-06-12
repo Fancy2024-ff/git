@@ -1,11 +1,21 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, computed } from 'vue'
 
 const props = defineProps<{ logs: string[] }>()
 
 const scrollRef = ref<HTMLElement | null>(null)
+const lastLogTime = ref(0)
+const now = ref(Date.now())
+
+let timer: ReturnType<typeof setInterval> | null = null
+timer = setInterval(() => { now.value = Date.now() }, 1000)
+
+const isLive = computed(() => {
+  return lastLogTime.value > 0 && (now.value - lastLogTime.value) < 3000
+})
 
 watch(() => props.logs.length, () => {
+  lastLogTime.value = Date.now()
   nextTick(() => {
     if (scrollRef.value) {
       scrollRef.value.scrollTop = scrollRef.value.scrollHeight
@@ -23,6 +33,10 @@ watch(() => props.logs.length, () => {
         <span class="dot dot--green"></span>
       </div>
       <span class="terminal-title">Pipeline Logs</span>
+      <span class="terminal-info">
+        <span v-if="isLive" class="live-indicator"><span class="live-dot"></span> Live</span>
+        <span class="line-count">{{ logs.length }} lines</span>
+      </span>
     </div>
     <div class="terminal-body" ref="scrollRef">
       <div v-if="logs.length === 0" class="empty-logs">
@@ -69,6 +83,41 @@ watch(() => props.logs.length, () => {
 .terminal-title {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.5);
+  font-weight: 500;
+}
+
+.terminal-info {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.live-indicator {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #27c93f;
+  font-weight: 600;
+}
+
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #27c93f;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.line-count {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.35);
   font-weight: 500;
 }
 

@@ -1,6 +1,7 @@
 import type { JobSummary, JobDetail, DemoResult } from '../types/job'
 
 const BASE = 'http://localhost:8000'
+const WS_BASE = 'ws://localhost:8000'
 
 async function get<T = any>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`)
@@ -25,4 +26,17 @@ export const api = {
   startPipeline: (mode: string = 'demo') => post<DemoResult>('/api/demo/start', { mode }),
   getRealInputs: () => get<{ apps: any[]; exists: boolean }>('/api/real-inputs/apps'),
   saveRealInputs: (apps: any[]) => post('/api/real-inputs/apps', apps),
+  getPlatforms: () => get<{ platforms: any[]; total: number }>('/api/platforms'),
+}
+
+export function connectPipelineWS(onMessage: (data: any) => void): WebSocket {
+  const ws = new WebSocket(`${WS_BASE}/ws/pipeline`)
+  ws.onmessage = (e) => {
+    try { onMessage(JSON.parse(e.data)) } catch {}
+  }
+  ws.onerror = () => {}
+  ws.onclose = () => {
+    setTimeout(() => connectPipelineWS(onMessage), 3000)
+  }
+  return ws
 }

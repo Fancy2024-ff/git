@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import type { JobSummary, JobDetail } from './types/job'
-import { api } from './services/api'
+import { api, connectPipelineWS } from './services/api'
 import AppleTopNav from './components/AppleTopNav.vue'
 import JobMegaMenu from './components/JobMegaMenu.vue'
 import HeroSummary from './components/HeroSummary.vue'
@@ -15,6 +15,7 @@ import FilesPanel from './components/FilesPanel.vue'
 import LogsPanel from './components/LogsPanel.vue'
 import BossViewPanel from './components/BossViewPanel.vue'
 import ImportPanel from './components/ImportPanel.vue'
+import PlatformsPanel from './components/PlatformsPanel.vue'
 
 const jobs = ref<JobSummary[]>([])
 const currentJob = ref<JobDetail | null>(null)
@@ -33,6 +34,7 @@ const tabs = [
   { id: 'listing', label: '上架材料' },
   { id: 'actions', label: '人工操作' },
   { id: 'files', label: '产物文件' },
+  { id: 'platforms', label: '平台库' },
   { id: 'logs', label: '日志' },
   { id: 'boss', label: '演示' },
   { id: 'import', label: '导入' },
@@ -64,6 +66,7 @@ async function startPipeline() {
   running.value = true
   error.value = ''
   logs.value = []
+  activeTab.value = 'logs'
   try {
     const res = await api.startPipeline(mode.value)
     logs.value = res.logs || []
@@ -83,6 +86,11 @@ async function startPipeline() {
 onMounted(async () => {
   await loadJobs()
   await loadLatest()
+  connectPipelineWS((msg) => {
+    if (msg.type === 'log') logs.value.push(msg.data)
+    if (msg.type === 'status' && msg.running) { running.value = true }
+    if (msg.type === 'complete') { running.value = false; loadJobs(); loadLatest(); }
+  })
 })
 </script>
 
@@ -120,6 +128,7 @@ onMounted(async () => {
           <ListingPanel v-if="activeTab === 'listing'" :job="currentJob" />
           <HumanStepsPanel v-if="activeTab === 'actions'" :job="currentJob" />
           <FilesPanel v-if="activeTab === 'files'" :job="currentJob" />
+          <PlatformsPanel v-if="activeTab === 'platforms'" />
           <LogsPanel v-if="activeTab === 'logs'" :logs="logs" />
           <BossViewPanel v-if="activeTab === 'boss'" :job="currentJob" />
           <ImportPanel v-if="activeTab === 'import'" />

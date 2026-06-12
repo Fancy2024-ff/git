@@ -1426,34 +1426,51 @@ def main():
         ]
     }, ensure_ascii=False, indent=2))
 
-    # Generate submission-readiness-report (production-grade)
+    # Generate submission-readiness-report (dynamic from platform registry)
     platform_readiness = []
-    platform_urls = {
-        "wechat": "https://mp.weixin.qq.com",
-        "alipay": "https://open.alipay.com",
-        "douyin": "https://developer.open-douyin.com",
-        "telegram": "https://t.me/BotFather",
-    }
+    rejected_platforms = []
+
+    # Load platform registry
+    registry_file = DATA_DIR / "platforms" / "platform-registry.json"
+    registry = {}
+    if registry_file.exists():
+        reg_list = json.loads(registry_file.read_text(encoding="utf-8"))
+        registry = {p["id"]: p for p in reg_list}
+
     for plat in opportunity["target_platforms"]:
+        reg = registry.get(plat, {})
+        status = reg.get("status", "unknown")
+
+        if status == "not_supported":
+            rejected_platforms.append({"platform": plat, "reason": reg.get("notes", "平台不支持")})
+            continue
+        if status == "research_needed":
+            rejected_platforms.append({"platform": plat, "reason": "待调研，暂不可提交"})
+            continue
+
         platform_readiness.append({
             "platform": plat,
-            "ready": True,
-            "submit_url": platform_urls.get(plat, ""),
-            "upload_path": str(output_dir / "generated" / "miniapp" / "dist" / "build" / "mp-weixin") if plat == "wechat" else str(output_dir / "generated" / "miniapp"),
+            "name_cn": reg.get("name_cn", plat),
+            "name_en": reg.get("name_en", plat),
+            "ready": status == "active",
+            "submit_url": reg.get("submit_url", reg.get("developer_url", "")),
+            "developer_url": reg.get("developer_url", ""),
+            "upload_path": str(output_dir / "generated" / "miniapp" / (reg.get("upload_target", "") or "dist/build/mp-weixin")),
+            "cli_tool": reg.get("cli_tool", ""),
+            "automation_level": reg.get("automation_level", "manual"),
             "missing_fields": [],
-            "manual_steps": [
-                f"登录 {platform_urls.get(plat, plat)} 平台后台",
-                "上传代码包",
-                "填写应用信息",
-                "提交审核",
-            ],
+            "required_materials": reg.get("required_materials", []),
+            "submission_steps": reg.get("submission_steps", []),
+            "compliance_risks": reg.get("compliance_risks", []),
+            "manual_steps": reg.get("submission_steps", []),
         })
 
     readiness = {
         "job_id": job_id,
         "app_name": best_app["name_cn"],
-        "target_platforms": opportunity["target_platforms"],
-        "is_ready_to_submit": True,
+        "target_platforms": [p["platform"] for p in platform_readiness],
+        "rejected_platforms": rejected_platforms,
+        "is_ready_to_submit": len(platform_readiness) > 0,
         "blocking_issues": [],
         "warning_issues": ["构建未在目标平台真机测试", "截图需人工准备"],
         "required_materials": {
