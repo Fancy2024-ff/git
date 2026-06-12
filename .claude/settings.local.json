@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Start-Process \"d:\\\\daily work\\\\miniapp-factory\\\\dashboard\\\\index.html\")",
+      "PowerShell(python --version)",
+      "PowerShell(py --version)",
+      "PowerShell(py -0p)",
+      "PowerShell(node --version)",
+      "PowerShell(npm --version)",
+      "PowerShell(cd \"d:\\\\daily work\\\\miniapp-factory\"; \"ANTHROPIC_API_KEY=$\\($env:ANTHROPIC_API_KEY\\)\" | Out-File -FilePath \"agents\\\\.env\" -Encoding utf8)",
+      "PowerShell(cd \"d:\\\\daily work\\\\miniapp-factory\"; $env:PYTHONIOENCODING=\"utf-8\"; & \".\\\\agents\\\\.venv\\\\Scripts\\\\python.exe\" -X utf8 scripts/smoke_test.py)",
+      "PowerShell(cd \"d:\\\\daily work\\\\miniapp-factory\"; $env:PYTHONIOENCODING=\"utf-8\"; & \".\\\\agents\\\\.venv\\\\Scripts\\\\python.exe\" -X utf8 scripts/test_full_pipeline.py)",
+      "PowerShell(cd \"d:\\\\daily work\\\\miniapp-factory\"; $env:PYTHONIOENCODING=\"utf-8\"; $env:PYTHONUNBUFFERED=\"1\"; & \".\\\\agents\\\\.venv\\\\Scripts\\\\python.exe\" -X utf8 scripts/test_full_pipeline.py)",
+      "WebFetch(domain:www.apple.com)",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\Git\\\\bin;$env:PATH\"; cd \"d:\\\\daily work\\\\miniapp-factory\"; git init)",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\Git\\\\bin;$env:PATH\"; cd \"d:\\\\daily work\\\\miniapp-factory\"; git add -A; git status)"
+    ]
+  }
+}

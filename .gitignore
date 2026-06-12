@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+
+# Node.js
+node_modules/
+generator/dist/
+dashboard/dist/
+
+# Environment
+.env
+
+# Data (generated at runtime)
+data/apps/
+data/prds/
+data/projects/
+data/reports/
+data/outputs/
+data/pipeline_state.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

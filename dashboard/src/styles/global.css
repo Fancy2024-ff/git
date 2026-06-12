@@ -1,0 +1,80 @@
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  line-height: 1.5;
+  letter-spacing: -0.011em;
+  min-height: 100vh;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  font-size: inherit;
+}
+
+/* Utility: Section wrapper */
+.section {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 0 var(--space-6);
+}
+
+/* Utility: Divider */
+.divider {
+  height: 1px;
+  background: var(--color-border);
+  margin: var(--space-12) 0;
+}
+
+/* Animation */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.animate-in {
+  animation: fadeInUp var(--duration-slow) var(--ease-out) both;
+}
+.animate-in-1 { animation-delay: 0ms; }
+.animate-in-2 { animation-delay: 80ms; }
+.animate-in-3 { animation-delay: 160ms; }
+.animate-in-4 { animation-delay: 240ms; }
+.animate-in-5 { animation-delay: 320ms; }
+.animate-in-6 { animation-delay: 400ms; }
+.animate-in-7 { animation-delay: 480ms; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border-strong); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-tertiary); }
