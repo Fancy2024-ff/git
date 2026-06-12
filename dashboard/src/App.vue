@@ -1,198 +1,163 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import HeroPanel from './components/HeroPanel.vue'
-import PipelineTimeline from './components/PipelineTimeline.vue'
-import HumanActionPanel from './components/HumanActionPanel.vue'
-import PublishFlow from './components/PublishFlow.vue'
-import ArtifactList from './components/ArtifactList.vue'
+import type { JobSummary, JobDetail } from './types/job'
+import { api } from './services/api'
+import AppleTopNav from './components/AppleTopNav.vue'
+import JobMegaMenu from './components/JobMegaMenu.vue'
+import SegmentedTabs from './components/SegmentedTabs.vue'
+import OverviewPanel from './components/OverviewPanel.vue'
+import PipelinePanel from './components/PipelinePanel.vue'
+import MarkdownPanel from './components/MarkdownPanel.vue'
+import FilesPanel from './components/FilesPanel.vue'
+import LogsPanel from './components/LogsPanel.vue'
 
-const API = 'http://localhost:8000'
-
-const latestJob = ref<any>(null)
-const pipelineRunning = ref(false)
-const pipelineLogs = ref<string[]>([])
+const jobs = ref<JobSummary[]>([])
+const currentJob = ref<JobDetail | null>(null)
+const menuOpen = ref(false)
+const running = ref(false)
+const logs = ref<string[]>([])
+const activeTab = ref('overview')
 const error = ref('')
 
-async function fetchLatestJob() {
+const tabs = [
+  { id: 'overview', label: '总览' },
+  { id: 'pipeline', label: '流水线' },
+  { id: 'prd', label: 'PRD' },
+  { id: 'listing', label: '上架材料' },
+  { id: 'actions', label: '人工操作' },
+  { id: 'files', label: '产物文件' },
+  { id: 'logs', label: '日志' },
+]
+
+async function loadJobs() {
   try {
-    const res = await fetch(`${API}/api/jobs/latest`)
-    if (res.ok) latestJob.value = await res.json()
-  } catch { /* API not running yet */ }
+    const res = await api.getJobs()
+    jobs.value = res.jobs
+  } catch {}
 }
 
-async function onStartPipeline() {
-  pipelineRunning.value = true
-  pipelineLogs.value = []
-  error.value = ''
+async function loadLatest() {
   try {
-    const res = await fetch(`${API}/api/demo/start`, { method: 'POST' })
-    const data = await res.json()
-    if (data.success) {
-      pipelineLogs.value = data.logs || []
-      // Reload latest job
-      await fetchLatestJob()
+    currentJob.value = await api.getLatestJob()
+  } catch {}
+}
+
+async function selectJob(id: string) {
+  menuOpen.value = false
+  try {
+    currentJob.value = await api.getJob(id)
+  } catch (e: any) {
+    error.value = e.message
+  }
+}
+
+async function startPipeline() {
+  running.value = true
+  error.value = ''
+  logs.value = []
+  try {
+    const res = await api.startDemo()
+    logs.value = res.logs || []
+    if (res.success && res.job_id) {
+      await loadJobs()
+      await selectJob(res.job_id)
+      activeTab.value = 'overview'
     } else {
-      error.value = `Pipeline failed (exit code ${data.exit_code})`
-      pipelineLogs.value = data.logs || []
+      error.value = `Pipeline failed (exit ${res.exit_code})`
     }
   } catch (e: any) {
-    error.value = `API connection failed: ${e.message}. Please start: cd agents && python server.py`
+    error.value = `API error: ${e.message}`
   }
-  pipelineRunning.value = false
+  running.value = false
 }
 
-onMounted(fetchLatestJob)
-
-function getArtifact(name: string): any {
-  return latestJob.value?.artifacts?.[name]
-}
-
-function getMdContent(name: string): string {
-  const a = getArtifact(name)
+function getMd(name: string): string {
+  const a = currentJob.value?.artifacts?.[name]
   if (typeof a === 'string') return a
   if (a?.content) return a.content
   return ''
 }
+
+function getJson(name: string): any {
+  return currentJob.value?.artifacts?.[name] || null
+}
+
+onMounted(async () => {
+  await loadJobs()
+  await loadLatest()
+})
 </script>
 
 <template>
-  <div class="app-wrapper">
-    <!-- Hero -->
-    <div class="section animate-in animate-in-1">
-      <HeroPanel
-        :running="pipelineRunning"
-        :job-id="latestJob?.id"
-        @start-pipeline="onStartPipeline"
-      />
-    </div>
+  <div class="app" :class="{ 'app--dimmed': menuOpen }">
+    <AppleTopNav
+      :current-job="currentJob"
+      :running="running"
+      @toggle-menu="menuOpen = !menuOpen"
+      @start="startPipeline"
+    />
 
-    <!-- Error -->
-    <div v-if="error" class="section">
-      <div class="error-card">{{ error }}</div>
-    </div>
+    <JobMegaMenu
+      v-if="menuOpen"
+      :jobs="jobs"
+      :current-id="currentJob?.id"
+      @select="selectJob"
+      @close="menuOpen = false"
+    />
 
-    <!-- Pipeline Status from QA -->
-    <div v-if="latestJob" class="section animate-in animate-in-2">
-      <PipelineTimeline :qa="getArtifact('qa-report.json')" />
-    </div>
+    <main class="main" @click="menuOpen = false">
+      <div v-if="error" class="error-banner">{{ error }}</div>
 
-    <!-- Job Summary -->
-    <div v-if="latestJob" class="section animate-in animate-in-3">
-      <div class="section-header">
-        <h2 class="section-title">当前任务 <span class="en">Job Detail</span></h2>
-        <p class="section-subtitle">Job ID: {{ latestJob.id }}</p>
-      </div>
-      <div class="job-summary">
-        <div class="summary-card">
-          <div class="summary-label">应用</div>
-          <div class="summary-value">{{ getArtifact('candidate.json')?.name_cn || '—' }}</div>
-          <div class="summary-sub">{{ getArtifact('candidate.json')?.name || '' }}</div>
-        </div>
-        <div class="summary-card">
-          <div class="summary-label">机会评分</div>
-          <div class="summary-value score">{{ getArtifact('opportunity-report.json')?.opportunity_score || '—' }}</div>
-          <div class="summary-sub">{{ getArtifact('opportunity-report.json')?.recommendation || '' }}</div>
-        </div>
-        <div class="summary-card">
-          <div class="summary-label">QA 结果</div>
-          <div class="summary-value" :class="getArtifact('qa-report.json')?.passed ? 'pass' : 'fail'">
-            {{ getArtifact('qa-report.json')?.passed ? '通过' : '未通过' }}
-          </div>
-          <div class="summary-sub">构建: {{ getArtifact('qa-report.json')?.checks?.build_verified ? '已验证' : '未验证' }}</div>
-        </div>
-        <div class="summary-card">
-          <div class="summary-label">小程序路径</div>
-          <div class="summary-value path">{{ latestJob.miniapp_path || '—' }}</div>
+      <div v-if="currentJob" class="content">
+        <SegmentedTabs :tabs="tabs" v-model="activeTab" />
+
+        <div class="panel-area">
+          <OverviewPanel v-if="activeTab === 'overview'" :job="currentJob" />
+          <PipelinePanel v-if="activeTab === 'pipeline'" :qa="getJson('qa-report.json')" />
+          <MarkdownPanel v-if="activeTab === 'prd'" :content="getMd('prd.md')" title="PRD" />
+          <MarkdownPanel v-if="activeTab === 'listing'" :content="getMd('listing-materials.md')" title="上架材料" />
+          <MarkdownPanel v-if="activeTab === 'actions'" :content="getMd('human-actions.md')" title="人工操作指南" />
+          <FilesPanel v-if="activeTab === 'files'" :job="currentJob" />
+          <LogsPanel v-if="activeTab === 'logs'" :logs="logs" />
         </div>
       </div>
-    </div>
 
-    <!-- Human Actions -->
-    <div v-if="getMdContent('human-actions.md')" class="section animate-in animate-in-4">
-      <HumanActionPanel :content="getMdContent('human-actions.md')" />
-    </div>
-
-    <!-- PRD + Listing side by side -->
-    <div v-if="latestJob" class="section animate-in animate-in-5">
-      <div class="two-col">
-        <div class="doc-card">
-          <h3 class="doc-title">产品文档 <span class="en">PRD</span></h3>
-          <pre class="doc-content">{{ getMdContent('prd.md').slice(0, 2000) }}</pre>
-        </div>
-        <div class="doc-card">
-          <h3 class="doc-title">上架材料 <span class="en">Listing</span></h3>
-          <pre class="doc-content">{{ getMdContent('listing-materials.md').slice(0, 2000) }}</pre>
-        </div>
+      <div v-else class="empty">
+        <p class="empty-title">暂无任务数据</p>
+        <p class="empty-sub">请确认后端已启动，然后点击「启动流水线」</p>
+        <code class="empty-code">cd agents && python server.py</code>
       </div>
-    </div>
-
-    <!-- Artifacts list -->
-    <div v-if="latestJob" class="section animate-in animate-in-6">
-      <ArtifactList :artifacts="latestJob.artifacts" :miniapp-files="latestJob.miniapp_files" />
-    </div>
-
-    <!-- Logs -->
-    <div v-if="pipelineLogs.length" class="section animate-in animate-in-7">
-      <div class="section-header">
-        <h2 class="section-title">运行日志 <span class="en">Pipeline Logs</span></h2>
-      </div>
-      <div class="console">
-        <div class="console-bar">
-          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-          <span class="console-title">run_demo_pipeline.py</span>
-        </div>
-        <div class="console-body">
-          <div v-for="(line, i) in pipelineLogs" :key="i">{{ line }}</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Empty state -->
-    <div v-if="!latestJob && !pipelineRunning" class="section">
-      <div class="empty-state">
-        <p>暂无任务数据。请先启动后端 API，然后点击「启动流水线」。</p>
-        <code>cd agents && python server.py</code>
-      </div>
-    </div>
+    </main>
   </div>
 </template>
 
 <style scoped>
-.app-wrapper { padding: var(--space-12) 0 var(--space-16); }
-.app-wrapper > .section { margin-bottom: 48px; }
+.app { min-height: 100vh; transition: filter 0.2s; }
+.app--dimmed .main { filter: blur(2px) brightness(0.97); pointer-events: none; }
 
-.section-header { margin-bottom: var(--space-5); }
-.section-title { font-size: 20px; font-weight: 600; color: var(--color-text-primary); letter-spacing: -0.02em; }
-.en { font-size: 13px; font-weight: 400; color: var(--color-text-tertiary); margin-left: 6px; }
-.section-subtitle { font-size: 13px; color: var(--color-text-secondary); margin-top: 3px; }
+.main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: calc(var(--nav-height) + 24px) 24px 48px;
+}
 
-.error-card { background: var(--color-red-subtle); color: #991b1b; padding: 12px 16px; border-radius: var(--radius-sm); font-size: 13px; }
+.error-banner {
+  background: rgba(255, 59, 48, 0.08);
+  color: #c41e16;
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  margin-bottom: 20px;
+}
 
-.job-summary { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-.summary-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 16px; }
-.summary-label { font-size: 11px; font-weight: 600; color: var(--color-text-tertiary); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 4px; }
-.summary-value { font-size: 20px; font-weight: 700; color: var(--color-text-primary); letter-spacing: -0.02em; }
-.summary-value.score { color: var(--color-accent); }
-.summary-value.pass { color: var(--color-green); }
-.summary-value.fail { color: var(--color-red); }
-.summary-value.path { font-size: 11px; font-weight: 500; font-family: var(--font-mono); word-break: break-all; }
-.summary-sub { font-size: 12px; color: var(--color-text-tertiary); margin-top: 2px; }
+.content { animation: fadeIn 0.3s var(--ease-apple); }
 
-.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-@media (max-width: 768px) { .two-col { grid-template-columns: 1fr; } }
-.doc-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 20px; overflow: hidden; }
-.doc-title { font-size: 15px; font-weight: 600; margin-bottom: 12px; color: var(--color-text-primary); }
-.doc-content { font-size: 12px; line-height: 1.6; color: var(--color-text-secondary); white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow-y: auto; font-family: var(--font-sans); }
+.panel-area { margin-top: 24px; }
 
-.console { background: #1a1a1a; border-radius: var(--radius-md); overflow: hidden; }
-.console-bar { display: flex; align-items: center; gap: 6px; padding: 10px 14px; background: #252525; }
-.dot { width: 10px; height: 10px; border-radius: 50%; }
-.dot.r { background: #ff5f57; }
-.dot.y { background: #febc2e; }
-.dot.g { background: #28c840; }
-.console-title { flex: 1; text-align: center; font-size: 11px; color: #666; }
-.console-body { padding: 14px 18px; max-height: 300px; overflow-y: auto; font-family: var(--font-mono); font-size: 11px; line-height: 1.7; color: #d4d4d4; }
+.empty { text-align: center; padding: 120px 20px; }
+.empty-title { font-size: 20px; font-weight: 600; color: var(--color-text-1); }
+.empty-sub { font-size: 14px; color: var(--color-text-2); margin-top: 8px; }
+.empty-code { display: block; margin-top: 16px; font-family: var(--font-mono); font-size: 13px; color: var(--color-text-2); }
 
-.empty-state { text-align: center; padding: 60px 20px; color: var(--color-text-tertiary); }
-.empty-state code { display: block; margin-top: 12px; font-size: 13px; color: var(--color-text-secondary); }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 </style>
