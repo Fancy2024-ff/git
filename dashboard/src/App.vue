@@ -4,10 +4,13 @@ import type { JobSummary, JobDetail } from './types/job'
 import { api } from './services/api'
 import AppleTopNav from './components/AppleTopNav.vue'
 import JobMegaMenu from './components/JobMegaMenu.vue'
+import HeroSummary from './components/HeroSummary.vue'
 import SegmentedTabs from './components/SegmentedTabs.vue'
 import OverviewPanel from './components/OverviewPanel.vue'
 import PipelinePanel from './components/PipelinePanel.vue'
-import MarkdownPanel from './components/MarkdownPanel.vue'
+import PRDPanel from './components/PRDPanel.vue'
+import ListingPanel from './components/ListingPanel.vue'
+import HumanStepsPanel from './components/HumanStepsPanel.vue'
 import FilesPanel from './components/FilesPanel.vue'
 import LogsPanel from './components/LogsPanel.vue'
 
@@ -71,17 +74,6 @@ async function startPipeline() {
   running.value = false
 }
 
-function getMd(name: string): string {
-  const a = currentJob.value?.artifacts?.[name]
-  if (typeof a === 'string') return a
-  if (a?.content) return a.content
-  return ''
-}
-
-function getJson(name: string): any {
-  return currentJob.value?.artifacts?.[name] || null
-}
-
 onMounted(async () => {
   await loadJobs()
   await loadLatest()
@@ -109,14 +101,16 @@ onMounted(async () => {
       <div v-if="error" class="error-banner">{{ error }}</div>
 
       <div v-if="currentJob" class="content">
+        <HeroSummary :job="currentJob" />
+
         <SegmentedTabs :tabs="tabs" v-model="activeTab" />
 
         <div class="panel-area">
           <OverviewPanel v-if="activeTab === 'overview'" :job="currentJob" />
-          <PipelinePanel v-if="activeTab === 'pipeline'" :qa="getJson('qa-report.json')" />
-          <MarkdownPanel v-if="activeTab === 'prd'" :content="getMd('prd.md')" title="PRD" />
-          <MarkdownPanel v-if="activeTab === 'listing'" :content="getMd('listing-materials.md')" title="上架材料" />
-          <MarkdownPanel v-if="activeTab === 'actions'" :content="getMd('human-actions.md')" title="人工操作指南" />
+          <PipelinePanel v-if="activeTab === 'pipeline'" :job="currentJob" />
+          <PRDPanel v-if="activeTab === 'prd'" :job="currentJob" />
+          <ListingPanel v-if="activeTab === 'listing'" :job="currentJob" />
+          <HumanStepsPanel v-if="activeTab === 'actions'" :job="currentJob" />
           <FilesPanel v-if="activeTab === 'files'" :job="currentJob" />
           <LogsPanel v-if="activeTab === 'logs'" :logs="logs" />
         </div>
@@ -132,8 +126,16 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.app { min-height: 100vh; transition: filter 0.2s; }
-.app--dimmed .main { filter: blur(2px) brightness(0.97); pointer-events: none; }
+.app {
+  min-height: 100vh;
+  background: var(--color-bg);
+  background-image: radial-gradient(ellipse at 70% 0%, rgba(0,113,227,0.03) 0%, transparent 60%);
+  transition: filter 0.2s;
+}
+.app--dimmed .main {
+  filter: blur(2px) brightness(0.97);
+  pointer-events: none;
+}
 
 .main {
   max-width: 960px;
@@ -150,14 +152,38 @@ onMounted(async () => {
   margin-bottom: 20px;
 }
 
-.content { animation: fadeIn 0.3s var(--ease-apple); }
+.content {
+  animation: fadeIn 0.3s var(--ease-apple);
+}
 
-.panel-area { margin-top: 24px; }
+.panel-area {
+  margin-top: 32px;
+}
 
-.empty { text-align: center; padding: 120px 20px; }
-.empty-title { font-size: 20px; font-weight: 600; color: var(--color-text-1); }
-.empty-sub { font-size: 14px; color: var(--color-text-2); margin-top: 8px; }
-.empty-code { display: block; margin-top: 16px; font-family: var(--font-mono); font-size: 13px; color: var(--color-text-2); }
+.empty {
+  text-align: center;
+  padding: 120px 20px;
+}
+.empty-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-text-1);
+}
+.empty-sub {
+  font-size: 14px;
+  color: var(--color-text-2);
+  margin-top: 8px;
+}
+.empty-code {
+  display: block;
+  margin-top: 16px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--color-text-2);
+}
 
-@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 </style>

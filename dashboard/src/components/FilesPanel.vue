@@ -4,51 +4,81 @@ import type { JobDetail } from '../types/job'
 
 const props = defineProps<{ job: JobDetail }>()
 
-const artifactKeys = computed(() => {
-  return Object.keys(props.job.artifacts || {})
+interface FileItem {
+  name: string
+  type: string
+  icon: string
+}
+
+const artifacts = computed<FileItem[]>(() => {
+  const a = props.job.artifacts || {}
+  return Object.keys(a).map(name => ({
+    name,
+    type: getType(name),
+    icon: getIcon(name),
+  }))
 })
 
-const miniappFiles = computed(() => {
+const buildFiles = computed<FileItem[]>(() => {
   const files = props.job.miniapp_files || []
-  return files.slice(0, 25)
+  return files.slice(0, 20).map(f => ({
+    name: f.split('/').pop() || f,
+    type: getType(f),
+    icon: getIcon(f),
+  }))
 })
+
+function getType(name: string): string {
+  if (name.endsWith('.json')) return 'JSON'
+  if (name.endsWith('.md')) return 'Markdown'
+  if (name.endsWith('.js') || name.endsWith('.ts')) return 'Script'
+  if (name.endsWith('.css') || name.endsWith('.wxss')) return 'Style'
+  if (name.endsWith('.wxml') || name.endsWith('.html')) return 'Template'
+  if (name.includes('.')) return name.split('.').pop()?.toUpperCase() || 'File'
+  return 'Folder'
+}
+
+function getIcon(name: string): string {
+  if (name.endsWith('.json')) return '{}'
+  if (name.endsWith('.md')) return '◧'
+  if (name.includes('/') || !name.includes('.')) return '▤'
+  return '▢'
+}
 </script>
 
 <template>
-  <div class="files-panel">
+  <div class="files">
     <div class="files-grid">
-      <div class="files-section">
-        <h3 class="files-heading">产物文件 <span class="en">Artifacts</span></h3>
-        <ul class="file-list">
-          <li v-for="key in artifactKeys" :key="key" class="file-item">
-            <svg class="file-icon" width="14" height="14" viewBox="0 0 16 16" fill="none">
-              <path d="M4 1h5l4 4v9a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2"/>
-              <path d="M9 1v4h4" stroke="currentColor" stroke-width="1.2"/>
-            </svg>
-            <span class="file-name">{{ key }}</span>
-          </li>
-          <li v-if="!artifactKeys.length" class="file-empty">暂无产物</li>
-        </ul>
+      <div class="files-col">
+        <h3 class="col-title">Pipeline Artifacts</h3>
+        <div class="file-list">
+          <div v-if="artifacts.length === 0" class="empty-state">暂无产物文件</div>
+          <div v-for="item in artifacts" :key="item.name" class="file-card">
+            <span class="file-icon">{{ item.icon }}</span>
+            <span class="file-name">{{ item.name }}</span>
+            <span class="file-type">{{ item.type }}</span>
+          </div>
+        </div>
       </div>
-
-      <div class="files-section">
-        <h3 class="files-heading">小程序文件 <span class="en">Miniapp</span></h3>
-        <ul class="file-list">
-          <li v-for="file in miniappFiles" :key="file" class="file-item">
-            <svg class="file-icon" width="14" height="14" viewBox="0 0 16 16" fill="none">
-              <path d="M4 1h5l4 4v9a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2"/>
-              <path d="M9 1v4h4" stroke="currentColor" stroke-width="1.2"/>
-            </svg>
-            <span class="file-name">{{ file }}</span>
-          </li>
-          <li v-if="!miniappFiles.length" class="file-empty">暂无文件</li>
-        </ul>
+      <div class="files-col">
+        <h3 class="col-title">Build Output</h3>
+        <div class="file-list">
+          <div v-if="buildFiles.length === 0" class="empty-state">暂无构建产物</div>
+          <div v-for="item in buildFiles" :key="item.name" class="file-card">
+            <span class="file-icon">{{ item.icon }}</span>
+            <span class="file-name">{{ item.name }}</span>
+            <span class="file-type">{{ item.type }}</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </template>
+
 <style scoped>
-.files-panel { animation: fadeIn 0.3s ease; }
+.files {
+  padding: 0;
+}
 
 .files-grid {
   display: grid;
@@ -56,42 +86,68 @@ const miniappFiles = computed(() => {
   gap: 24px;
 }
 
-.files-heading {
-  font-size: 13px;
+.col-title {
+  font-size: 12px;
   font-weight: 600;
-  color: var(--color-text-1);
-  margin-bottom: 12px;
-}
-.files-heading .en {
-  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   color: var(--color-text-3);
-  margin-left: 6px;
+  margin: 0 0 12px;
 }
 
-.file-list { list-style: none; padding: 0; margin: 0; }
+.file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 
-.file-item {
+.empty-state {
+  font-size: 13px;
+  color: var(--color-text-3);
+  padding: 24px;
+  text-align: center;
+  background: var(--color-surface-solid);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+.file-card {
+  background: var(--color-surface-solid);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: 12px 16px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--color-border, rgba(0,0,0,0.06));
+  gap: 10px;
 }
 
-.file-icon { color: var(--color-text-3); flex-shrink: 0; }
+.file-icon {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--color-text-3);
+  width: 24px;
+  text-align: center;
+  flex-shrink: 0;
+}
 
 .file-name {
-  font-size: 12px;
-  font-family: var(--font-mono);
-  color: var(--color-text-2);
-  word-break: break-all;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-1);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.file-empty {
-  font-size: 12px;
+.file-type {
+  font-size: 11px;
+  font-weight: 500;
   color: var(--color-text-3);
-  padding: 8px 0;
+  background: rgba(0, 0, 0, 0.03);
+  padding: 2px 8px;
+  border-radius: 980px;
+  flex-shrink: 0;
 }
-
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 </style>
+

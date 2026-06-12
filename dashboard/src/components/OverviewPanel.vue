@@ -1,150 +1,242 @@
-<script setup lang="ts">
-import { computed } from 'vue'
+﻿<script setup lang="ts">
+import { computed, ref } from 'vue'
 import type { JobDetail } from '../types/job'
 
 const props = defineProps<{ job: JobDetail }>()
 
-const candidate = computed(() => props.job.artifacts?.['candidate.json'] || {})
 const opportunity = computed(() => props.job.artifacts?.['opportunity-report.json'] || {})
 const qa = computed(() => props.job.artifacts?.['qa-report.json'] || {})
-const gap = computed(() => props.job.artifacts?.['gap-check.json'] || {})
+
+const totalScore = computed(() => opportunity.value.total_score ?? '-')
+const demandScore = computed(() => opportunity.value.demand_score ?? '-')
+const gapScore = computed(() => opportunity.value.miniapp_gap_score ?? '-')
+const riskScore = computed(() => opportunity.value.risk_score ?? '-')
+const nextAction = computed(() => opportunity.value.next_action || '暂无')
+const distPath = computed(() => qa.value.checks?.dist_path || props.job.miniapp_path || '')
+
+const copied = ref(false)
+
+function copyDistPath() {
+  if (!distPath.value) return
+  navigator.clipboard.writeText(distPath.value)
+  copied.value = true
+  setTimeout(() => { copied.value = false }, 1500)
+}
+
+const checklist = computed(() => [
+  { label: 'PRD 产品需求文档', done: !!props.job.artifacts?.['prd.md'] },
+  { label: 'Code 代码生成', done: !!props.job.miniapp_path || (props.job.miniapp_files?.length ?? 0) > 0 },
+  { label: 'QA 质量验证', done: !!props.job.artifacts?.['qa-report.json'] },
+  { label: 'Listing 上架材料', done: !!props.job.artifacts?.['listing-materials.json'] || !!props.job.artifacts?.['listing-materials.md'] },
+  { label: 'Guide 人工操作指南', done: !!props.job.artifacts?.['human-actions.md'] },
+])
 </script>
 
 <template>
   <div class="overview">
-    <!-- Job Meta -->
-    <div class="meta">
-      <span class="meta-item">Job: <strong>{{ job.id }}</strong></span>
-      <span class="meta-item">应用: <strong>{{ candidate.name_cn || candidate.name || '—' }}</strong></span>
-      <span v-if="candidate.name" class="meta-item en">{{ candidate.name }}</span>
-    </div>
-
-    <!-- 5-Dimension Scoring -->
-    <div class="section-label">机会评分 Opportunity Score</div>
-    <div class="scores">
-      <div class="score-item">
-        <div class="score-bar" :style="{ width: (opportunity.demand_score || 0) + '%' }"></div>
-        <div class="score-info">
-          <span class="score-name">需求强度</span>
-          <span class="score-val">{{ opportunity.demand_score ?? '—' }}</span>
-        </div>
+    <div class="metrics-grid">
+      <div class="metric-card metric-card--primary">
+        <span class="metric-label">Opportunity Score</span>
+        <span class="metric-value metric-value--blue">{{ totalScore }}</span>
       </div>
-      <div class="score-item">
-        <div class="score-bar bar-gap" :style="{ width: (opportunity.miniapp_gap_score || 0) + '%' }"></div>
-        <div class="score-info">
-          <span class="score-name">小程序缺口</span>
-          <span class="score-val">{{ opportunity.miniapp_gap_score ?? '—' }}</span>
-        </div>
+      <div class="metric-card">
+        <span class="metric-label">Demand Score</span>
+        <span class="metric-value">{{ demandScore }}</span>
       </div>
-      <div class="score-item">
-        <div class="score-bar bar-fit" :style="{ width: (opportunity.miniapp_fit_score || 0) + '%' }"></div>
-        <div class="score-info">
-          <span class="score-name">适配度</span>
-          <span class="score-val">{{ opportunity.miniapp_fit_score ?? '—' }}</span>
-        </div>
+      <div class="metric-card">
+        <span class="metric-label">Gap Score</span>
+        <span class="metric-value">{{ gapScore }}</span>
       </div>
-      <div class="score-item">
-        <div class="score-bar bar-impl" :style="{ width: (opportunity.implementation_score || 0) + '%' }"></div>
-        <div class="score-info">
-          <span class="score-name">实现难度</span>
-          <span class="score-val">{{ opportunity.implementation_score ?? '—' }}</span>
-        </div>
-      </div>
-      <div class="score-item">
-        <div class="score-bar bar-risk" :style="{ width: (opportunity.risk_score || 0) + '%' }"></div>
-        <div class="score-info">
-          <span class="score-name">风险（高=安全）</span>
-          <span class="score-val">{{ opportunity.risk_score ?? '—' }}</span>
-        </div>
+      <div class="metric-card">
+        <span class="metric-label">Risk Score</span>
+        <span class="metric-value">{{ riskScore }}</span>
       </div>
     </div>
 
-    <!-- Total + Recommendation -->
-    <div class="total-row">
-      <div class="total-score">{{ opportunity.total_score ?? '—' }}<span class="total-max">/100</span></div>
-      <div class="rec-badge" :class="opportunity.recommendation === '立即执行' ? 'rec-go' : opportunity.recommendation === '暂缓' ? 'rec-no' : 'rec-maybe'">
-        {{ opportunity.recommendation || '—' }}
+    <div class="action-card">
+      <div class="action-header">
+        <span class="action-title">Next Action</span>
       </div>
-    </div>
-    <div v-if="opportunity.reasons?.length" class="reasons">
-      <span v-for="r in opportunity.reasons" :key="r" class="reason-tag good">{{ r }}</span>
-    </div>
-    <div v-if="opportunity.reject_reasons?.length" class="reasons">
-      <span v-for="r in opportunity.reject_reasons" :key="r" class="reason-tag bad">{{ r }}</span>
-    </div>
-
-    <!-- Platform + Build Status -->
-    <div class="section-label" style="margin-top:24px">状态 Status</div>
-    <div class="cards">
-      <div class="card">
-        <div class="card-label">推荐平台</div>
-        <div class="card-value platform">{{ gap.recommended_platforms?.join(', ') || '—' }}</div>
-      </div>
-      <div class="card">
-        <div class="card-label">质量检查</div>
-        <div class="card-value" :class="qa.passed ? 'pass' : 'fail'">{{ qa.passed ? '通过' : '未通过' }}</div>
-      </div>
-      <div class="card">
-        <div class="card-label">构建验证</div>
-        <div class="card-value" :class="qa.checks?.build_passed ? 'pass' : 'fail'">{{ qa.checks?.build_passed ? '通过' : '未验证' }}</div>
-      </div>
-      <div class="card">
-        <div class="card-label">Dist 就绪</div>
-        <div class="card-value" :class="qa.checks?.dist_exists ? 'pass' : 'fail'">{{ qa.checks?.dist_exists ? '就绪' : '未就绪' }}</div>
+      <p class="action-text">{{ nextAction }}</p>
+      <div class="action-dist" v-if="distPath">
+        <code class="dist-path">{{ distPath }}</code>
+        <button class="copy-btn" @click="copyDistPath">
+          {{ copied ? 'Copied!' : 'Copy Dist Path' }}
+        </button>
       </div>
     </div>
 
-    <!-- Next Action -->
-    <div v-if="opportunity.next_action" class="next-action">
-      下一步: {{ opportunity.next_action }}
+    <div class="checklist-card">
+      <h3 class="checklist-title">Pipeline Products</h3>
+      <ul class="checklist">
+        <li v-for="item in checklist" :key="item.label" class="check-item">
+          <span class="check-icon" :class="item.done ? 'check-icon--done' : 'check-icon--pending'">
+            {{ item.done ? '✓' : '○' }}
+          </span>
+          <span class="check-label">{{ item.label }}</span>
+        </li>
+      </ul>
     </div>
   </div>
 </template>
 
 <style scoped>
-.overview { animation: fadeIn 0.3s ease; }
+.overview {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
 
-.meta { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; font-size: 13px; color: var(--color-text-2); }
-.meta-item strong { color: var(--color-text-1); font-weight: 500; }
-.meta-item.en { color: var(--color-text-3); }
+.metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
 
-.section-label { font-size: 11px; font-weight: 600; color: var(--color-text-3); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 12px; }
+.metric-card {
+  background: var(--color-surface-solid);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 
-.scores { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
-.score-item { position: relative; background: rgba(0,0,0,0.03); border-radius: 6px; height: 28px; overflow: hidden; }
-.score-bar { position: absolute; left: 0; top: 0; bottom: 0; background: var(--color-blue); opacity: 0.12; border-radius: 6px; transition: width 0.6s ease; }
-.score-bar.bar-gap { background: var(--color-green); opacity: 0.12; }
-.score-bar.bar-fit { background: #5856d6; opacity: 0.10; }
-.score-bar.bar-impl { background: var(--color-orange); opacity: 0.12; }
-.score-bar.bar-risk { background: #34c759; opacity: 0.10; }
-.score-info { position: relative; display: flex; justify-content: space-between; align-items: center; height: 100%; padding: 0 12px; }
-.score-name { font-size: 12px; color: var(--color-text-2); }
-.score-val { font-size: 13px; font-weight: 600; color: var(--color-text-1); }
+.metric-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
 
-.total-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
-.total-score { font-size: 36px; font-weight: 700; color: var(--color-text-1); letter-spacing: -0.03em; }
-.total-max { font-size: 16px; font-weight: 400; color: var(--color-text-3); }
-.rec-badge { font-size: 13px; font-weight: 600; padding: 4px 12px; border-radius: 20px; }
-.rec-go { background: var(--color-green-subtle); color: #1a7a35; }
-.rec-maybe { background: var(--color-orange-subtle); color: #8a5a00; }
-.rec-no { background: rgba(255,59,48,0.08); color: #c41e16; }
+.metric-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--color-text-1);
+  letter-spacing: -0.02em;
+}
+.metric-value--blue {
+  color: var(--color-blue);
+}
 
-.reasons { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
-.reason-tag { font-size: 11px; padding: 3px 8px; border-radius: 4px; }
-.reason-tag.good { background: var(--color-green-subtle); color: #1a7a35; }
-.reason-tag.bad { background: rgba(255,59,48,0.08); color: #c41e16; }
+.action-card {
+  background: var(--color-surface-solid);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: 24px;
+}
 
-.cards { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; }
-.card { background: var(--color-surface-solid, #fff); border-radius: var(--radius-md); padding: 16px; box-shadow: var(--shadow-card); }
-.card-label { font-size: 10px; font-weight: 600; color: var(--color-text-3); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px; }
-.card-value { font-size: 15px; font-weight: 600; color: var(--color-text-1); }
-.card-value.platform { font-size: 12px; font-weight: 500; }
-.card-value.pass { color: #1d7a34; }
-.card-value.fail { color: #c41e16; }
+.action-header {
+  margin-bottom: 8px;
+}
 
-.next-action { margin-top: 16px; font-size: 13px; color: var(--color-text-2); padding: 10px 14px; background: var(--color-blue-subtle); border-radius: var(--radius-sm); }
+.action-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-3);
+}
 
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.action-text {
+  font-size: 15px;
+  color: var(--color-text-1);
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
 
-@media (max-width: 768px) { .cards { grid-template-columns: 1fr 1fr; } }
+.action-dist {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: var(--radius-sm);
+}
+
+.dist-path {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text-2);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copy-btn {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-blue);
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 5px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 0.12s var(--ease-apple), background 0.12s;
+}
+.copy-btn:hover {
+  background: var(--color-blue-subtle);
+  transform: translateY(-1px);
+}
+.copy-btn:active {
+  transform: scale(0.98);
+}
+
+.checklist-card {
+  background: var(--color-surface-solid);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: 24px;
+}
+
+.checklist-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-3);
+  margin: 0 0 16px;
+}
+
+.checklist {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.check-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.check-icon {
+  font-size: 14px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+.check-icon--done {
+  background: var(--color-green-subtle);
+  color: #1a8d36;
+  font-weight: 600;
+}
+.check-icon--pending {
+  color: var(--color-text-3);
+}
+
+.check-label {
+  font-size: 14px;
+  color: var(--color-text-1);
+}
 </style>
