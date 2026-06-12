@@ -172,7 +172,16 @@ async def _stream_pipeline_output(job_id: str):
             await _broadcast({"type": "pipeline_failed", "job_id": job_id, "error": f"Timeout ({PIPELINE_TIMEOUT}s)", "success": False}, job_id=job_id)
             return
 
-        line = await loop.run_in_executor(None, pipeline_process.stdout.readline)
+        # Read with per-line timeout (prevents infinite block on no output)
+        try:
+            line = await asyncio.wait_for(
+                loop.run_in_executor(None, pipeline_process.stdout.readline),
+                timeout=float(PIPELINE_TIMEOUT - elapsed + 1)
+            )
+        except asyncio.TimeoutError:
+            pipeline_process.kill()
+            await _broadcast({"type": "pipeline_failed", "job_id": job_id, "error": f"Timeout ({PIPELINE_TIMEOUT}s) - no output", "success": False}, job_id=job_id)
+            return
         if not line:
             break
         line = line.rstrip()
@@ -224,7 +233,13 @@ def pipeline_stop():
 
 @app.websocket("/ws/pipeline/{job_id}")
 async def ws_pipeline_job(ws: WebSocket, job_id: str):
-    """Per-job WebSocket for pipeline log streaming."""
+    """Per-job WebSocket for pipeline log streaming. Validates token if DASHBOARD_API_KEY set."""
+    # Token validation via query param
+    if DASHBOARD_API_KEY:
+        token = ws.query_params.get("token", "")
+        if token != DASHBOARD_API_KEY:
+            await ws.close(code=4001, reason="Unauthorized")
+            return
     await ws.accept()
     if job_id not in ws_clients:
         ws_clients[job_id] = []
@@ -248,7 +263,12 @@ async def ws_pipeline_job(ws: WebSocket, job_id: str):
 
 @app.websocket("/ws/pipeline")
 async def ws_pipeline_global(ws: WebSocket):
-    """Global WebSocket (deprecated, use /ws/pipeline/{job_id})."""
+    """Global WebSocket (deprecated). Validates token if set."""
+    if DASHBOARD_API_KEY:
+        token = ws.query_params.get("token", "")
+        if token != DASHBOARD_API_KEY:
+            await ws.close(code=4001, reason="Unauthorized")
+            return
     await ws.accept()
     if "__global__" not in ws_clients:
         ws_clients["__global__"] = []
@@ -530,12 +550,13 @@ def get_overview():
 # SECTION: Zip Download
 # ---------------------------------------------------------------------------
 
-@app.get("/api/jobs/{job_id}/download")
+@app.get("/api/jobs/{job_id}/download", dependencies=[Depends(verify_api_key)])
 def download_job(job_id: str):
     """Download all job artifacts as a zip file."""
     import zipfile
     import tempfile
     from fastapi.responses import FileResponse
+    from starlette.background import BackgroundTask
 
     job_dir = OUTPUTS_DIR / job_id
     if not job_dir.exists():
@@ -551,10 +572,18 @@ def download_job(job_id: str):
                 arcname = str(f.relative_to(job_dir))
                 zf.write(f, arcname)
 
+    # BackgroundTask to clean up temp file after response is sent
+    def cleanup():
+        try:
+            os.unlink(tmp.name)
+        except Exception:
+            pass
+
     return FileResponse(
         tmp.name,
         media_type="application/zip",
         filename=f"miniapp-factory-{job_id}.zip",
+        background=BackgroundTask(cleanup),
     )
 
 

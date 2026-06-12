@@ -52,7 +52,8 @@ export function connectPipelineWS(jobId: string, onMessage: (data: any) => void)
 
   function connect() {
     if (stopped) return
-    ws = new WebSocket(`${WS_BASE}/ws/pipeline/${jobId}`)
+    const tokenParam = API_KEY ? `?token=${API_KEY}` : ''
+    ws = new WebSocket(`${WS_BASE}/ws/pipeline/${jobId}${tokenParam}`)
     ws.onopen = () => { retryCount = 0 }
     ws.onmessage = (e) => {
       try { onMessage(JSON.parse(e.data)) } catch {}

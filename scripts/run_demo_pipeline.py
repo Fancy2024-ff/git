@@ -262,10 +262,6 @@ def gap_check_agent(app: dict) -> dict:
 
 def opportunity_score_agent(app: dict, analysis: dict, gap: dict) -> dict:
     """机会评分：5 维度综合评估。"""
-
-
-def opportunity_score_agent(app: dict, analysis: dict, gap: dict) -> dict:
-    """机会评分：5 维度综合评估。"""
     features = app.get("features", [])
     features_cn = app.get("features_cn", [])
 

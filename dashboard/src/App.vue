@@ -90,10 +90,11 @@ async function startPipeline() {
       return
     }
     if (res.job_id) {
-      connectPipelineWS(res.job_id, (msg) => {
-        if (msg.type === 'log' || msg.type === 'step_log') logs.value.push(msg.data)
+      const wsConn = connectPipelineWS(res.job_id, (msg) => {
+        if (msg.type === 'log' || msg.type === 'step_log') logs.value.push(msg.data || msg.message || '')
         if (msg.type === 'pipeline_finished') {
           running.value = false
+          wsConn.disconnect()
           if (msg.job_id) {
             selectJob(msg.job_id)
             loadJobs()
