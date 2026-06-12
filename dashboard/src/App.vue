@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import type { JobSummary, JobDetail } from './types/job'
 import { api } from './services/api'
@@ -13,6 +13,8 @@ import ListingPanel from './components/ListingPanel.vue'
 import HumanStepsPanel from './components/HumanStepsPanel.vue'
 import FilesPanel from './components/FilesPanel.vue'
 import LogsPanel from './components/LogsPanel.vue'
+import BossViewPanel from './components/BossViewPanel.vue'
+import ImportPanel from './components/ImportPanel.vue'
 
 const jobs = ref<JobSummary[]>([])
 const currentJob = ref<JobDetail | null>(null)
@@ -21,6 +23,8 @@ const running = ref(false)
 const logs = ref<string[]>([])
 const activeTab = ref('overview')
 const error = ref('')
+const mode = ref<'demo' | 'real'>('demo')
+const showImport = ref(false)
 
 const tabs = [
   { id: 'overview', label: '总览' },
@@ -30,6 +34,8 @@ const tabs = [
   { id: 'actions', label: '人工操作' },
   { id: 'files', label: '产物文件' },
   { id: 'logs', label: '日志' },
+  { id: 'boss', label: '演示' },
+  { id: 'import', label: '导入' },
 ]
 
 async function loadJobs() {
@@ -59,7 +65,7 @@ async function startPipeline() {
   error.value = ''
   logs.value = []
   try {
-    const res = await api.startDemo()
+    const res = await api.startPipeline(mode.value)
     logs.value = res.logs || []
     if (res.success && res.job_id) {
       await loadJobs()
@@ -85,8 +91,10 @@ onMounted(async () => {
     <AppleTopNav
       :current-job="currentJob"
       :running="running"
+      :mode="mode"
       @toggle-menu="menuOpen = !menuOpen"
       @start="startPipeline"
+      @update:mode="mode = $event"
     />
 
     <JobMegaMenu
@@ -113,6 +121,8 @@ onMounted(async () => {
           <HumanStepsPanel v-if="activeTab === 'actions'" :job="currentJob" />
           <FilesPanel v-if="activeTab === 'files'" :job="currentJob" />
           <LogsPanel v-if="activeTab === 'logs'" :logs="logs" />
+          <BossViewPanel v-if="activeTab === 'boss'" :job="currentJob" />
+          <ImportPanel v-if="activeTab === 'import'" />
         </div>
       </div>
 

@@ -4,11 +4,13 @@ import type { JobDetail } from '../types/job'
 const props = defineProps<{
   currentJob: JobDetail | null
   running: boolean
+  mode: string
 }>()
 
 const emit = defineEmits<{
   'toggle-menu': []
   start: []
+  'update:mode': [value: string]
 }>()
 
 function getAppName(): string {
@@ -32,6 +34,18 @@ function getAppName(): string {
         </button>
       </div>
       <div class="nav-right">
+        <div class="mode-toggle">
+          <button
+            class="mode-btn"
+            :class="{ 'mode-btn--active': mode === 'demo' }"
+            @click="emit('update:mode', 'demo')"
+          >Demo</button>
+          <button
+            class="mode-btn"
+            :class="{ 'mode-btn--active': mode === 'real' }"
+            @click="emit('update:mode', 'real')"
+          >Real</button>
+        </div>
         <span class="status-dot" :class="running ? 'status-dot--active' : 'status-dot--idle'"></span>
         <button class="start-btn" :disabled="running" @click="emit('start')">
           {{ running ? '运行中...' : '启动流水线' }}
@@ -113,6 +127,30 @@ function getAppName(): string {
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
+}
+
+.mode-toggle {
+  display: flex;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 980px;
+  padding: 2px;
+}
+
+.mode-btn {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-2);
+  background: none;
+  border: none;
+  border-radius: 980px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.mode-btn--active {
+  background: #fff;
+  color: var(--color-text-1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .status-dot {

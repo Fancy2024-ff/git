@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
 
 const props = defineProps<{ logs: string[] }>()

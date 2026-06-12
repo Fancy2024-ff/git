@@ -1383,15 +1383,71 @@ def main():
     p(f"  关键词: {', '.join(listing_json['keywords'])}")
     step_done(f"data/outputs/{job_id}/listing-materials.json", time.time() - t0)
 
-    # === Step 8: Human Actions ===
-    step_header(8, "生成人工操作指南", "—")
+    # === Step 8: Human Actions + Publish Package ===
+    step_header(8, "生成提交审核包", "PublishPackageAgent")
     t0 = time.time()
     human_md = generate_human_actions(best_app, job_id, output_dir)
     _write(output_dir / "human-actions.md", human_md)
-    step_done(f"data/outputs/{job_id}/human-actions.md", time.time() - t0)
 
-    # === Step 9: QA Check (runs last, includes npm install + build) ===
-    step_header(9, "质量检查 + 构建验证", "QACheckAgent")
+    # Generate publish-package directory
+    pkg_dir = output_dir / "publish-package"
+    pkg_dir.mkdir(exist_ok=True)
+    _write(pkg_dir / "listing-materials.md", listing_md)
+    _write(pkg_dir / "privacy-summary.md", f"# 隐私政策摘要\n\n{listing_json['privacy_summary']}")
+    _write(pkg_dir / "user-agreement-summary.md", f"# 用户协议摘要\n\n{listing_json['user_agreement_summary']}")
+    _write(pkg_dir / "review-notes.md", f"# 审核备注\n\n{listing_json['review_notes']}")
+    _write(pkg_dir / "human-submit-guide.md", human_md)
+    _write(pkg_dir / "platform-checklist.json", json.dumps({
+        "platforms": [
+            {"platform": p, "status": "pending", "submitted_at": None, "review_result": None}
+            for p in opportunity["target_platforms"]
+        ]
+    }, ensure_ascii=False, indent=2))
+
+    # Generate submission-readiness-report
+    readiness = {
+        "job_id": job_id,
+        "app_name": best_app["name_cn"],
+        "ready": True,
+        "checklist": {
+            "prd_generated": True,
+            "code_generated": True,
+            "build_pending": True,
+            "listing_materials_ready": True,
+            "privacy_policy_ready": True,
+            "user_agreement_ready": True,
+            "human_guide_ready": True,
+        },
+        "target_platforms": opportunity["target_platforms"],
+        "next_action": "执行 npm install + build，然后人工上架",
+    }
+    _write(output_dir / "submission-readiness-report.json", json.dumps(readiness, ensure_ascii=False, indent=2))
+
+    p(f"  publish-package/ 已生成")
+    p(f"  submission-readiness-report.json 已生成")
+    p(f"  目标平台: {', '.join(opportunity['target_platforms'])}")
+    step_done(f"data/outputs/{job_id}/publish-package/", time.time() - t0)
+
+    # === Step 9: Pipeline Report ===
+    pipeline_report = {
+        "job_id": job_id,
+        "mode": mode,
+        "steps": [
+            {"name": "Market Input", "status": "passed", "output": "candidate.json"},
+            {"name": "Demand Analysis", "status": "passed", "output": "analysis.json"},
+            {"name": "Gap Check", "status": "passed", "output": "gap-check.json"},
+            {"name": "Opportunity Score", "status": "passed", "output": "opportunity-report.json"},
+            {"name": "PRD Generation", "status": "passed", "output": "prd.json"},
+            {"name": "Code Generation", "status": "passed", "output": "generated/miniapp/"},
+            {"name": "Publish Materials", "status": "passed", "output": "listing-materials.json"},
+            {"name": "Submit Package", "status": "passed", "output": "publish-package/"},
+            {"name": "Build + QA", "status": "pending", "output": "qa-report.json"},
+        ],
+    }
+    _write(output_dir / "pipeline-report.json", json.dumps(pipeline_report, ensure_ascii=False, indent=2))
+
+    # === Step 10: QA Check (runs last, includes npm install + build) ===
+    step_header(10, "质量检查 + 构建验证", "QACheckAgent")
     t0 = time.time()
     p(f"  执行 npm install + npm run build:mp-weixin...")
     qa = qa_check_agent(miniapp_dir, output_dir)
@@ -1415,6 +1471,10 @@ def main():
             p(f"    ▸ {issue}")
     _write(output_dir / "qa-report.json", json.dumps(qa, ensure_ascii=False, indent=2))
     step_done(f"data/outputs/{job_id}/qa-report.json", time.time() - t0)
+
+    # Update pipeline-report with final QA status
+    pipeline_report["steps"][-1]["status"] = "passed" if qa["passed"] else "failed"
+    _write(output_dir / "pipeline-report.json", json.dumps(pipeline_report, ensure_ascii=False, indent=2))
 
     # === SUMMARY ===
     p("\n" + "=" * 60)
