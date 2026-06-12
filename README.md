@@ -1,4 +1,4 @@
-# Mini App Factory
+﻿# Mini App Factory
 
 Agent 驱动的小程序批量生产系统。自动发现 App Store / Google Play 上已验证的 AI 应用需求，识别小程序生态供给缺口，生成产品方案、代码、上架材料。
 

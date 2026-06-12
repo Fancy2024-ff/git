@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 defineProps<{
   tabs: { id: string; label: string }[]
   modelValue: string

@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import type { JobSummary, JobDetail } from './types/job'
 import { api } from './services/api'
