@@ -195,41 +195,40 @@ OUTPUTS_DIR = DATA_DIR / "outputs"
 
 @app.get("/api/jobs")
 def list_jobs():
-    """List all demo pipeline jobs from data/outputs/."""
+    """List all demo pipeline jobs from data/outputs/, sorted by mtime (newest first)."""
     if not OUTPUTS_DIR.exists():
         return {"jobs": []}
     jobs = []
-    for d in sorted(OUTPUTS_DIR.iterdir(), reverse=True):
-        if d.is_dir():
-            job = {"id": d.name, "path": str(d)}
-            # Read qa-report if exists
-            qa_file = d / "qa-report.json"
-            if qa_file.exists():
-                qa = json.loads(qa_file.read_text(encoding="utf-8-sig"))
-                job["qa_passed"] = qa.get("passed", False)
-                job["build_verified"] = qa.get("checks", {}).get("build_verified", False)
-            # Read candidate if exists
-            cand_file = d / "candidate.json"
-            if cand_file.exists():
-                cand = json.loads(cand_file.read_text(encoding="utf-8-sig"))
-                job["app_name"] = cand.get("name_cn", cand.get("name", ""))
-                job["app_name_en"] = cand.get("name", "")
-            # Check which artifacts exist
-            artifacts = [f.name for f in d.iterdir() if f.is_file()]
-            job["artifacts"] = artifacts
-            job["has_miniapp"] = (d / "generated" / "miniapp").exists()
-            jobs.append(job)
+    dirs = [d for d in OUTPUTS_DIR.iterdir() if d.is_dir()]
+    dirs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
+    for d in dirs:
+        job = {"id": d.name, "path": str(d)}
+        qa_file = d / "qa-report.json"
+        if qa_file.exists():
+            qa = json.loads(qa_file.read_text(encoding="utf-8-sig"))
+            job["qa_passed"] = qa.get("passed", False)
+            job["build_verified"] = qa.get("checks", {}).get("build_verified", False)
+        cand_file = d / "candidate.json"
+        if cand_file.exists():
+            cand = json.loads(cand_file.read_text(encoding="utf-8-sig"))
+            job["app_name"] = cand.get("name_cn", cand.get("name", ""))
+            job["app_name_en"] = cand.get("name", "")
+        artifacts = [f.name for f in d.iterdir() if f.is_file()]
+        job["artifacts"] = artifacts
+        job["has_miniapp"] = (d / "generated" / "miniapp").exists()
+        jobs.append(job)
     return {"jobs": jobs}
 
 
 @app.get("/api/jobs/latest")
 def get_latest_job():
-    """Get the most recent job."""
+    """Get the most recent job by mtime."""
     if not OUTPUTS_DIR.exists():
         raise HTTPException(404, "No jobs found")
-    dirs = sorted([d for d in OUTPUTS_DIR.iterdir() if d.is_dir()], reverse=True)
+    dirs = [d for d in OUTPUTS_DIR.iterdir() if d.is_dir()]
     if not dirs:
         raise HTTPException(404, "No jobs found")
+    dirs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
     return get_job(dirs[0].name)
 
 

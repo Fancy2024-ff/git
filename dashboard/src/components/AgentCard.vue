@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import type { Agent } from '../data/mockData'
 
 defineProps<{ agent: Agent }>()

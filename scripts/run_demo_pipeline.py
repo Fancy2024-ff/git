@@ -704,7 +704,9 @@ page {
 
 
 def qa_check_agent(miniapp_dir: Path, output_dir: Path) -> dict:
-    """质量检查 Agent：验证生成的项目完整性、编码、路径、内容。"""
+    """质量检查 Agent：验证项目完整性、编码、路径、内容，并自动执行 npm install + build。"""
+    import shutil
+    import subprocess as sp
 
     GARBLED_PATTERNS = ["鈹", "鍥", "绋", "鐢", "涓", "鍙", "杩", "閰", "椤"]
 
@@ -731,8 +733,7 @@ def qa_check_agent(miniapp_dir: Path, output_dir: Path) -> dict:
     # --- 2. 中文乱码检查 ---
     encoding_pass = True
     garbled_files = []
-    all_text_files = [f for f in miniapp_dir.rglob("*") if f.is_file() and f.suffix in (".json", ".md", ".vue", ".ts")]
-    # Also check output_dir level files
+    all_text_files = [f for f in miniapp_dir.rglob("*") if f.is_file() and f.suffix in (".json", ".md", ".vue", ".ts") and "node_modules" not in str(f)]
     output_text_files = [f for f in output_dir.iterdir() if f.is_file() and f.suffix in (".json", ".md")]
     for f in list(all_text_files) + list(output_text_files):
         try:
@@ -812,13 +813,97 @@ def qa_check_agent(miniapp_dir: Path, output_dir: Path) -> dict:
             json_valid = False
             issues.append(f"JSON 格式无效: {json_file}")
 
-    # --- 8. 包大小检查 ---
-    total_size = sum(f.stat().st_size for f in miniapp_dir.rglob("*") if f.is_file())
+    # --- 8. 包大小检查（不含 node_modules） ---
+    src_files = [f for f in miniapp_dir.rglob("*") if f.is_file() and "node_modules" not in str(f) and "dist" not in str(f)]
+    total_size = sum(f.stat().st_size for f in src_files)
     size_check = total_size < 2 * 1024 * 1024
 
+    # --- 9. 自动执行 npm install ---
+    install_verified = False
+    install_passed = False
+    install_command = "npm install"
+    install_duration_ms = 0
+    install_error = ""
+
+    npm_path = shutil.which("npm")
+    if not npm_path:
+        issues.append("npm 不可用，无法执行 install 和 build")
+        install_error = "npm not found in PATH"
+    else:
+        install_verified = True
+        t_start = time.time()
+        try:
+            result = sp.run(
+                [npm_path, "install"],
+                cwd=str(miniapp_dir),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=120,
+            )
+            install_duration_ms = int((time.time() - t_start) * 1000)
+            if result.returncode == 0:
+                install_passed = True
+            else:
+                install_passed = False
+                install_error = (result.stderr or result.stdout)[-500:]
+                issues.append(f"npm install 失败 (exit {result.returncode}): {install_error[:200]}")
+        except sp.TimeoutExpired:
+            install_duration_ms = 120000
+            install_error = "npm install timed out (120s)"
+            issues.append(install_error)
+        except Exception as e:
+            install_error = str(e)
+            issues.append(f"npm install 异常: {e}")
+
+    # --- 10. 自动执行 npm run build:mp-weixin ---
+    build_verified = False
+    build_passed = False
+    build_command = "npm run build:mp-weixin"
+    build_duration_ms = 0
+    build_output_summary = ""
+    build_error_summary = ""
+    dist_path = ""
+
+    if install_passed and npm_path:
+        build_verified = True
+        t_start = time.time()
+        try:
+            result = sp.run(
+                [npm_path, "run", "build:mp-weixin"],
+                cwd=str(miniapp_dir),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=120,
+            )
+            build_duration_ms = int((time.time() - t_start) * 1000)
+            output_text = result.stdout + result.stderr
+            if result.returncode == 0 and "Build complete" in output_text:
+                build_passed = True
+                build_output_summary = "DONE Build complete."
+                dist_path = str(miniapp_dir / "dist" / "build" / "mp-weixin")
+            else:
+                build_passed = False
+                build_error_summary = output_text[-500:]
+                issues.append(f"build 失败 (exit {result.returncode}): {build_error_summary[:200]}")
+        except sp.TimeoutExpired:
+            build_duration_ms = 120000
+            build_error_summary = "npm run build:mp-weixin timed out (120s)"
+            issues.append(build_error_summary)
+        except Exception as e:
+            build_error_summary = str(e)
+            issues.append(f"build 异常: {e}")
+
+    # --- 11. 验证 dist 目录存在 ---
+    dist_exists = Path(dist_path).exists() if dist_path else False
+    if build_passed and not dist_exists:
+        build_passed = False
+        issues.append("build 报告成功但 dist 目录不存在")
+
     # --- 综合判定 ---
-    # 乱码存在 → passed 必须 false
-    # 路径错误 → passed 必须 false
     passed = all([
         files_pass,
         encoding_pass,
@@ -828,11 +913,15 @@ def qa_check_agent(miniapp_dir: Path, output_dir: Path) -> dict:
         build_scripts_pass,
         json_valid,
         size_check,
+        install_passed,
+        build_verified,
+        build_passed,
+        dist_exists,
     ])
 
     return {
         "passed": passed,
-        "total_files": len(list(miniapp_dir.rglob("*"))),
+        "total_files": len(src_files),
         "total_size_bytes": total_size,
         "total_size_readable": f"{total_size / 1024:.1f} KB",
         "checks": {
@@ -844,7 +933,18 @@ def qa_check_agent(miniapp_dir: Path, output_dir: Path) -> dict:
             "build_scripts_passed": build_scripts_pass,
             "json_valid": json_valid,
             "size_within_limit": size_check,
-            "build_verified": False,
+            "install_verified": install_verified,
+            "install_passed": install_passed,
+            "install_command": install_command,
+            "install_duration_ms": install_duration_ms,
+            "build_verified": build_verified,
+            "build_passed": build_passed,
+            "build_command": build_command,
+            "build_duration_ms": build_duration_ms,
+            "build_output_summary": build_output_summary,
+            "build_error_summary": build_error_summary,
+            "dist_path": dist_path,
+            "dist_exists": dist_exists,
         },
         "file_checks": file_checks,
         "garbled_files": garbled_files,
@@ -1167,21 +1267,26 @@ def main():
     _write(output_dir / "human-actions.md", human_md)
     step_done(f"data/outputs/{job_id}/human-actions.md", time.time() - t0)
 
-    # === Step 9: QA Check (runs last, checks ALL output) ===
-    step_header(9, "质量检查（全量）", "QACheckAgent")
+    # === Step 9: QA Check (runs last, includes npm install + build) ===
+    step_header(9, "质量检查 + 构建验证", "QACheckAgent")
     t0 = time.time()
+    p(f"  执行 npm install + npm run build:mp-weixin...")
     qa = qa_check_agent(miniapp_dir, output_dir)
     checks = qa["checks"]
-    p(f"  文件存在: {'通过' if checks['files_exist'] else '失败'}")
-    p(f"  编码检查: {'通过' if checks['encoding_passed'] else '失败 - 发现乱码'}")
-    p(f"  路径检查: {'通过' if checks['path_passed'] else '失败 - 路径不正确'}")
-    p(f"  上架字段: {'通过' if checks['listing_fields_passed'] else '失败'}")
-    p(f"  README:   {'通过' if checks['readme_passed'] else '失败'}")
-    p(f"  构建脚本: {'通过' if checks['build_scripts_passed'] else '失败'}")
-    p(f"  JSON 合法: {'通过' if checks['json_valid'] else '失败'}")
-    p(f"  包大小:   {qa['total_size_readable']}（{'合规' if checks['size_within_limit'] else '超限'}）")
-    p(f"  构建验证: {'已验证' if checks['build_verified'] else '未执行真实构建'}")
-    p(f"  QA 结果: {'✓ 全部通过' if qa['passed'] else '✗ 未通过'}")
+    p(f"  文件存在:   {'通过' if checks['files_exist'] else '失败'}")
+    p(f"  编码检查:   {'通过' if checks['encoding_passed'] else '失败 - 发现乱码'}")
+    p(f"  路径检查:   {'通过' if checks['path_passed'] else '失败'}")
+    p(f"  上架字段:   {'通过' if checks['listing_fields_passed'] else '失败'}")
+    p(f"  README:     {'通过' if checks['readme_passed'] else '失败'}")
+    p(f"  构建脚本:   {'通过' if checks['build_scripts_passed'] else '失败'}")
+    p(f"  JSON 合法:  {'通过' if checks['json_valid'] else '失败'}")
+    p(f"  包大小:     {qa['total_size_readable']}（{'合规' if checks['size_within_limit'] else '超限'}）")
+    p(f"  npm install: {'通过' if checks['install_passed'] else '失败'} ({checks['install_duration_ms']}ms)")
+    p(f"  build 验证:  {'通过' if checks['build_passed'] else '失败'} ({checks['build_duration_ms']}ms)")
+    p(f"  dist 存在:   {'是' if checks['dist_exists'] else '否'}")
+    if checks.get('dist_path'):
+        p(f"  dist 路径:   {checks['dist_path']}")
+    p(f"  QA 结果:    {'✓ 全部通过' if qa['passed'] else '✗ 未通过'}")
     if qa["issues"]:
         for issue in qa["issues"][:5]:
             p(f"    ▸ {issue}")

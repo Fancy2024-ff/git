@@ -1,4 +1,4 @@
-﻿export interface PipelineNode {
+export interface PipelineNode {
   id: string
   label: string
   labelEn: string

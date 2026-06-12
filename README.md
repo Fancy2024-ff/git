@@ -1,93 +1,112 @@
-# 🏭 Mini-program Factory
+# Mini App Factory
 
-AI Agent 驱动的小程序批量生产工厂 —— 自动发现 App Store 上有但小程序平台缺失的 AI 应用机会，生成 PRD，编写代码，提交上架。
+Agent 驱动的小程序批量生产系统。自动发现 App Store / Google Play 上已验证的 AI 应用需求，识别小程序生态供给缺口，生成产品方案、代码、上架材料。
 
-## 架构
+## 当前 MVP 已跑通
 
-```
-Discovery Agent → Research Agent → Coding Agent → Publisher Agent
-    (找机会)        (出 PRD)        (生成代码)       (提交审核)
-```
-
-- **Agent 编排层**: Python + LangChain/LangGraph
-- **代码生成层**: Node.js + uni-app 模板
-- **LLM**: Claude (Anthropic API)
+- 一条命令完成 9 步流水线闭环
+- 从 5 个候选 App 中自动选择最优机会
+- 自动生成 PRD、uni-app 小程序代码、上架材料、人工操作指南
+- 自动执行 npm install + npm run build:mp-weixin
+- QA 自动验证构建产物
+- 生成的 dist/build/mp-weixin 可直接导入微信开发者工具
 
 ## 快速开始
 
-### 1. 环境准备
+### 运行 Demo Pipeline
 
 ```bash
-# Python 环境 (需要 3.11+)
+python scripts/run_demo_pipeline.py
+```
+
+执行后生成：
+```
+data/outputs/{jobId}/
+  candidate.json          - 选中的候选 App
+  analysis.json           - 需求分析
+  gap-check.json          - 覆盖检查
+  opportunity-report.json - 机会评分
+  prd.md                  - 产品文档
+  prd.json                - 结构化 PRD
+  listing-materials.md    - 上架材料
+  listing-materials.json  - 上架材料（结构化）
+  human-actions.md        - 人工操作指南
+  qa-report.json          - 质量检查报告
+  generated/miniapp/      - 小程序项目代码
+    dist/build/mp-weixin/ - 构建产物（可导入微信开发者工具）
+```
+
+### 启动后端 API
+
+```bash
 cd agents
 pip install -e .
+python server.py
+```
 
-# Node.js 环境
-cd generator
+后端运行在 http://localhost:8000
+
+### 启动前端 Dashboard
+
+```bash
+cd dashboard
 npm install
-```
-
-### 2. 配置
-
-```bash
-cp .env.example .env
-# 编辑 .env 填入你的 ANTHROPIC_API_KEY
-```
-
-### 3. 启动 Generator 服务
-
-```bash
-cd generator
 npm run dev
 ```
 
-### 4. 运行流水线
+前端运行在 http://localhost:5173
 
-```bash
-# 完整流水线 (发现 → 分析 → 编码 → 上架)
-python scripts/run_pipeline.py
+### 用微信开发者工具导入
 
-# 仅运行发现阶段
-python scripts/run_pipeline.py --discovery-only
-
-# 指定品类
-python scripts/run_pipeline.py --discovery-only --category photo
-
-# 查看已有项目
-python scripts/run_pipeline.py --list-projects
-```
+1. 打开微信开发者工具
+2. 选择"导入项目"
+3. 目录选择：`data/outputs/{jobId}/generated/miniapp/dist/build/mp-weixin`
+4. 填入 AppID（或使用测试号）
+5. 即可预览和调试
 
 ## 项目结构
 
 ```
 miniapp-factory/
-├── agents/                  # Python Agent 层
-│   ├── config/settings.py   # 全局配置
-│   ├── discovery/           # 发现 Agent - 找 App Store 有但小程序没有的
-│   ├── research/            # 分析 Agent - 拆解功能、生成 PRD
-│   ├── coding/              # 编码 Agent - 调度代码生成
-│   ├── publisher/           # 上架 Agent - 提交各平台审核
-│   ├── orchestrator/        # LangGraph 流水线调度
-│   └── shared/              # 共享模型、LLM 封装、数据库
-├── generator/               # Node.js 代码生成服务
-│   └── src/codegen/         # uni-app 页面/API/样式生成器
-├── data/                    # 运行时数据
-│   ├── apps/                # 采集到的 app 数据
-│   ├── prds/                # 生成的 PRD 文档
-│   ├── projects/            # 生成的小程序项目
-│   └── reports/             # 分析报告
-└── scripts/                 # 入口脚本
+  scripts/
+    run_demo_pipeline.py    - MVP 演示流水线（核心入口）
+  agents/
+    server.py               - FastAPI 后端
+    config/settings.py      - 配置
+    shared/                 - 数据模型、LLM 封装
+    discovery/              - 发现 Agent
+    research/               - 分析 Agent
+    coding/                 - 代码生成 Agent
+    qa/                     - 质检 Agent
+    publisher/              - 上架 Agent
+    review/                 - 复盘 Agent
+    orchestrator/           - LangGraph 流水线
+  dashboard/                - Vue 3 前端
+  generator/                - Node.js 代码生成服务
+  data/
+    samples/apps.json       - 候选 App 数据
+    outputs/                - 每次运行的产物
 ```
 
-## MVP 范围
+## 环境要求
 
-1. **Discovery**: 用七麦 API 拉排行榜 + 微信小程序搜索对比（无 API 时用 LLM 推荐）
-2. **Research**: Claude 分析 app 功能 → 生成 PRD
-3. **Coding**: uni-app 模板 + Claude 增强页面代码
-4. **Publisher**: 生成提交材料 + 手动上架指引（后期自动化）
+- Python 3.11+
+- Node.js 18+
+- npm
 
-## 注意事项
+## 当前限制
 
-- 首次运行如果没有七麦/SensorTower API Key，系统会使用 LLM 推荐热门 AI 应用
-- Generator 服务需要单独启动（`npm run dev`）
-- 生成的项目在 `data/projects/` 目录下，可直接用对应平台开发者工具打开
+- 候选 App 数据来自本地 JSON，未接真实 App Store API
+- 评分逻辑使用本地规则，未接 LLM
+- 代码生成使用模板骨架，未接 LLM 智能增强
+- 上架为人工操作，系统只生成材料和指南
+- 前端 Dashboard 展示真实 job 数据，但未做实时 WebSocket 推送
+
+## TODO
+
+- [ ] 接入七麦 / SensorTower API 获取真实排行榜数据
+- [ ] 接入 Claude API 替换本地评分规则
+- [ ] LLM 驱动的代码增强（更智能的页面逻辑）
+- [ ] 审核结果回填 + 自动复盘迭代
+- [ ] miniprogram-ci 自动上传（替代手动上架）
+- [ ] 前端 WebSocket 实时日志推送
