@@ -188,6 +188,148 @@ def get_project_file(project_id: str, path: str):
     return {"path": path, "content": content, "size": file_path.stat().st_size}
 
 
+# === ROUTES: Jobs (from data/outputs/) ===
+
+OUTPUTS_DIR = DATA_DIR / "outputs"
+
+
+@app.get("/api/jobs")
+def list_jobs():
+    """List all demo pipeline jobs from data/outputs/."""
+    if not OUTPUTS_DIR.exists():
+        return {"jobs": []}
+    jobs = []
+    for d in sorted(OUTPUTS_DIR.iterdir(), reverse=True):
+        if d.is_dir():
+            job = {"id": d.name, "path": str(d)}
+            # Read qa-report if exists
+            qa_file = d / "qa-report.json"
+            if qa_file.exists():
+                qa = json.loads(qa_file.read_text(encoding="utf-8-sig"))
+                job["qa_passed"] = qa.get("passed", False)
+                job["build_verified"] = qa.get("checks", {}).get("build_verified", False)
+            # Read candidate if exists
+            cand_file = d / "candidate.json"
+            if cand_file.exists():
+                cand = json.loads(cand_file.read_text(encoding="utf-8-sig"))
+                job["app_name"] = cand.get("name_cn", cand.get("name", ""))
+                job["app_name_en"] = cand.get("name", "")
+            # Check which artifacts exist
+            artifacts = [f.name for f in d.iterdir() if f.is_file()]
+            job["artifacts"] = artifacts
+            job["has_miniapp"] = (d / "generated" / "miniapp").exists()
+            jobs.append(job)
+    return {"jobs": jobs}
+
+
+@app.get("/api/jobs/latest")
+def get_latest_job():
+    """Get the most recent job."""
+    if not OUTPUTS_DIR.exists():
+        raise HTTPException(404, "No jobs found")
+    dirs = sorted([d for d in OUTPUTS_DIR.iterdir() if d.is_dir()], reverse=True)
+    if not dirs:
+        raise HTTPException(404, "No jobs found")
+    return get_job(dirs[0].name)
+
+
+@app.get("/api/jobs/{job_id}")
+def get_job(job_id: str):
+    """Get a specific job's details."""
+    job_dir = OUTPUTS_DIR / job_id
+    if not job_dir.exists():
+        raise HTTPException(404, "Job not found")
+
+    result = {"id": job_id, "path": str(job_dir), "artifacts": {}}
+
+    # Read all JSON/MD artifacts
+    for f in job_dir.iterdir():
+        if f.is_file():
+            if f.suffix == ".json":
+                try:
+                    result["artifacts"][f.name] = json.loads(f.read_text(encoding="utf-8-sig"))
+                except Exception:
+                    result["artifacts"][f.name] = {"error": "parse failed"}
+            elif f.suffix == ".md":
+                result["artifacts"][f.name] = f.read_text(encoding="utf-8-sig")
+
+    # Miniapp file list
+    miniapp_dir = job_dir / "generated" / "miniapp"
+    if miniapp_dir.exists():
+        result["miniapp_files"] = [
+            str(f.relative_to(miniapp_dir)) for f in miniapp_dir.rglob("*") if f.is_file() and "node_modules" not in str(f)
+        ]
+        result["miniapp_path"] = str(miniapp_dir)
+    return result
+
+
+@app.get("/api/jobs/{job_id}/artifact")
+def get_job_artifact(job_id: str, file: str):
+    """Read a specific artifact file from a job."""
+    job_dir = OUTPUTS_DIR / job_id
+    file_path = job_dir / file
+    # Security check
+    try:
+        file_path.resolve().relative_to(job_dir.resolve())
+    except ValueError:
+        raise HTTPException(403, "Access denied")
+    if not file_path.exists():
+        raise HTTPException(404, f"Artifact not found: {file}")
+    content = file_path.read_text(encoding="utf-8-sig")
+    if file_path.suffix == ".json":
+        return json.loads(content)
+    return {"content": content}
+
+
+# === ROUTES: Demo Start ===
+
+@app.post("/api/demo/start")
+async def start_demo():
+    """Start the demo pipeline and return job info when complete."""
+    global pipeline_process, pipeline_logs
+
+    if pipeline_process and pipeline_process.poll() is None:
+        raise HTTPException(409, "Pipeline already running")
+
+    pipeline_logs = []
+    scripts_dir = Path(__file__).parent.parent / "scripts"
+    python_exe = sys.executable
+
+    cmd = [python_exe, "-X", "utf8", str(scripts_dir / "run_demo_pipeline.py")]
+
+    pipeline_process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=str(Path(__file__).parent.parent),
+        env={**dict(__import__("os").environ), "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"},
+    )
+
+    # Wait for completion (demo is fast, < 1s)
+    stdout, _ = pipeline_process.communicate(timeout=30)
+    pipeline_logs = stdout.strip().split("\n") if stdout else []
+    exit_code = pipeline_process.returncode
+    pipeline_process = None
+
+    # Find the new job ID from output
+    job_id = None
+    for line in pipeline_logs:
+        if "Job ID:" in line:
+            job_id = line.split("Job ID:")[-1].strip()
+            break
+
+    return {
+        "success": exit_code == 0,
+        "job_id": job_id,
+        "exit_code": exit_code,
+        "log_lines": len(pipeline_logs),
+        "logs": pipeline_logs[-20:],
+    }
+
+
 # === ROUTES: PRD ===
 
 @app.get("/api/prds")
