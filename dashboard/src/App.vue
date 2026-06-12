@@ -69,18 +69,16 @@ async function startPipeline() {
   activeTab.value = 'logs'
   try {
     const res = await api.startPipeline(mode.value)
-    logs.value = res.logs || []
-    if (res.success && res.job_id) {
-      await loadJobs()
-      await selectJob(res.job_id)
-      activeTab.value = 'overview'
-    } else {
-      error.value = `Pipeline failed (exit ${res.exit_code})`
+    if (!res.accepted) {
+      error.value = 'Pipeline rejected'
+      running.value = false
     }
+    // Pipeline runs in background. Logs arrive via WebSocket.
+    // Do NOT overwrite logs here. Completion handled by WS 'pipeline_finished' event.
   } catch (e: any) {
     error.value = `API error: ${e.message}`
+    running.value = false
   }
-  running.value = false
 }
 
 onMounted(async () => {
@@ -88,8 +86,14 @@ onMounted(async () => {
   await loadLatest()
   connectPipelineWS((msg) => {
     if (msg.type === 'log') logs.value.push(msg.data)
-    if (msg.type === 'status' && msg.running) { running.value = true }
-    if (msg.type === 'complete') { running.value = false; loadJobs(); loadLatest(); }
+    if (msg.type === 'pipeline_finished') {
+      running.value = false
+      if (msg.job_id) {
+        selectJob(msg.job_id)
+        loadJobs()
+        activeTab.value = 'overview'
+      }
+    }
   })
 })
 </script>

@@ -1,497 +1,884 @@
 [
-  {
-    "id": "wechat",
-    "name_cn": "微信小程序",
-    "name_en": "WeChat Mini Program",
-    "platform_type": "super_app",
-    "region": ["CN"],
-    "coverage": "13亿用户",
-    "entry_barrier": "低",
-    "review_policy": "审核制，1-7个工作日",
-    "fee": "免费",
-    "entity_requirement": "中国大陆企业/个人均可",
-    "type_restriction": "禁止赌博、色情、违法内容",
-    "recommendation_stars": 5,
-    "recommendation_level": "high",
-    "status": "active",
-    "opening_method": "self_service",
-    "developer_url": "https://mp.weixin.qq.com",
-    "submit_url": "https://mp.weixin.qq.com",
-    "official_links": ["https://developers.weixin.qq.com/miniprogram/dev/framework/"],
-    "required_materials": ["AppID", "应用名称", "简介", "服务类目", "隐私政策", "用户协议"],
-    "submission_steps": ["注册账号", "创建小程序", "上传代码", "填写资料", "提交审核", "发布"],
-    "compliance_risks": ["内容安全审核严格", "用户数据合规"],
-    "technical_limits": ["主包2MB", "总包20MB", "无后台运行"],
-    "hot_cases": ["拼多多", "京东购物", "美团"],
-    "fit_product_types": ["工具", "电商", "生活服务", "教育", "内容"],
-    "not_fit_product_types": ["重度游戏", "直播", "VPN"],
-    "automation_level": "semi_automatic",
-    "supports_code_upload": true,
-    "supports_cli_upload": true,
-    "cli_tool": "miniprogram-ci",
-    "upload_target": "dist/build/mp-weixin",
-    "notes": "国内最大小程序平台，流量最大"
-  },
-  {
-    "id": "alipay",
-    "name_cn": "支付宝小程序",
-    "name_en": "Alipay Mini Program",
-    "platform_type": "super_app",
-    "region": ["CN"],
-    "coverage": "10亿用户",
-    "entry_barrier": "低",
-    "review_policy": "审核制，1-5个工作日",
-    "fee": "免费",
-    "entity_requirement": "中国大陆企业",
-    "type_restriction": "偏生活服务、金融工具",
-    "recommendation_stars": 4,
-    "recommendation_level": "high",
-    "status": "active",
-    "opening_method": "self_service",
-    "developer_url": "https://open.alipay.com",
-    "submit_url": "https://open.alipay.com/develop/manage",
-    "official_links": ["https://opendocs.alipay.com/mini/"],
-    "required_materials": ["AppID", "应用名称", "简介", "服务类目"],
-    "submission_steps": ["注册开放平台", "创建应用", "上传代码", "提交审核"],
-    "compliance_risks": ["金融类需额外资质"],
-    "technical_limits": ["包大小4MB"],
-    "hot_cases": ["芝麻信用", "花呗", "城市服务"],
-    "fit_product_types": ["生活服务", "金融工具", "出行"],
-    "not_fit_product_types": ["社交", "游戏"],
-    "automation_level": "manual",
-    "supports_code_upload": true,
-    "supports_cli_upload": false,
-    "cli_tool": "",
-    "upload_target": "dist/build/mp-alipay",
-    "notes": "适合生活服务和金融场景"
-  },
-  {
-    "id": "douyin",
-    "name_cn": "抖音小程序",
-    "name_en": "Douyin Mini Program",
-    "platform_type": "super_app",
-    "region": ["CN"],
-    "coverage": "7亿日活",
-    "entry_barrier": "低",
-    "review_policy": "审核制，1-3个工作日",
-    "fee": "免费",
-    "entity_requirement": "中国大陆企业/个人",
-    "type_restriction": "偏内容和电商",
-    "recommendation_stars": 4,
-    "recommendation_level": "high",
-    "status": "active",
-    "opening_method": "self_service",
-    "developer_url": "https://developer.open-douyin.com",
-    "submit_url": "https://developer.open-douyin.com",
-    "official_links": ["https://developer.open-douyin.com/docs/resource/zh-CN/mini-app/develop/guide/"],
-    "required_materials": ["AppID", "应用名称", "简介"],
-    "submission_steps": ["注册开发者", "创建应用", "上传代码", "提交审核"],
-    "compliance_risks": ["内容审核"],
-    "technical_limits": ["包大小4MB"],
-    "hot_cases": ["抖音电商", "小游戏"],
-    "fit_product_types": ["电商", "内容", "游戏", "工具"],
-    "not_fit_product_types": ["金融", "医疗"],
-    "automation_level": "manual",
-    "supports_code_upload": true,
-    "supports_cli_upload": false,
-    "cli_tool": "",
-    "upload_target": "dist/build/mp-toutiao",
-    "notes": "流量增长最快的小程序平台"
-  },
-  {
-    "id": "telegram",
-    "name_cn": "Telegram Mini Apps",
-    "name_en": "Telegram Mini Apps",
-    "platform_type": "messaging",
-    "region": ["Global"],
-    "coverage": "9亿月活",
-    "entry_barrier": "极低",
-    "review_policy": "无审核，部署即上线",
-    "fee": "免费",
-    "entity_requirement": "无",
-    "type_restriction": "无严格限制",
-    "recommendation_stars": 5,
-    "recommendation_level": "high",
-    "status": "active",
-    "opening_method": "self_service",
-    "developer_url": "https://core.telegram.org/bots/webapps",
-    "submit_url": "https://t.me/BotFather",
-    "official_links": ["https://core.telegram.org/bots/webapps", "https://telegram.org/blog/mini-apps"],
-    "required_materials": ["Bot Token", "WebApp URL"],
-    "submission_steps": ["创建 Bot (@BotFather)", "部署 Web App", "配置 WebApp URL", "上线"],
-    "compliance_risks": ["部分国家封锁 Telegram"],
-    "technical_limits": ["前端 Web 技术", "无原生 API", "依赖网络"],
-    "hot_cases": ["Notcoin", "Hamster Kombat", "TON 生态应用"],
-    "fit_product_types": ["工具", "游戏", "社交", "加密货币", "电商"],
-    "not_fit_product_types": [],
-    "automation_level": "automatic",
-    "supports_code_upload": false,
-    "supports_cli_upload": false,
-    "cli_tool": "Vercel CLI / Cloudflare Pages",
-    "upload_target": "Web 部署 URL",
-    "notes": "无审核、无费用、全球覆盖，最适合快速验证"
-  },
-  {
-    "id": "discord",
-    "name_cn": "Discord Activities",
-    "name_en": "Discord Activities",
-    "platform_type": "community",
-    "region": ["Global"],
-    "coverage": "2亿月活",
-    "entry_barrier": "中",
-    "review_policy": "审核制",
-    "fee": "免费",
-    "entity_requirement": "无严格要求",
-    "type_restriction": "偏游戏和社交互动",
-    "recommendation_stars": 4,
-    "recommendation_level": "high",
-    "status": "active",
-    "opening_method": "review_required",
-    "developer_url": "https://discord.com/developers/docs/activities/overview",
-    "submit_url": "https://discord.com/developers/applications",
-    "official_links": ["https://discord.com/developers/docs/activities/overview"],
-    "required_materials": ["Application ID", "Activity URL"],
-    "submission_steps": ["创建 Application", "配置 Activity", "嵌入 iframe", "提交审核"],
-    "compliance_risks": ["需符合 Discord 社区准则"],
-    "technical_limits": ["iframe 嵌入", "SDK 集成要求"],
-    "hot_cases": ["Poker Night", "Sketch Heads", "Watch Together"],
-    "fit_product_types": ["多人游戏", "社交互动", "协作工具"],
-    "not_fit_product_types": ["单人工具", "电商", "内容阅读"],
-    "automation_level": "semi_automatic",
-    "supports_code_upload": false,
-    "supports_cli_upload": false,
-    "cli_tool": "",
-    "upload_target": "Web 部署 URL",
-    "notes": "适合多人互动场景，游戏社区流量大"
-  },
-  {
-    "id": "reddit",
-    "name_cn": "Reddit Devvit",
-    "name_en": "Reddit Developer Platform (Devvit)",
-    "platform_type": "community",
-    "region": ["Global"],
-    "coverage": "17亿月活",
-    "entry_barrier": "中",
-    "review_policy": "审核制",
-    "fee": "免费",
-    "entity_requirement": "无",
-    "type_restriction": "社区互动类",
-    "recommendation_stars": 4,
-    "recommendation_level": "high",
-    "status": "active",
-    "opening_method": "review_required",
-    "developer_url": "https://developers.reddit.com",
-    "submit_url": "https://developers.reddit.com",
-    "official_links": ["https://developers.reddit.com/docs/"],
-    "required_materials": ["Reddit 开发者账号", "Devvit App 配置"],
-    "submission_steps": ["注册开发者", "创建 Devvit App", "本地开发调试", "提交审核", "发布到社区"],
-    "compliance_risks": ["需符合 Reddit 内容政策"],
-    "technical_limits": ["Devvit 框架限制", "服务端渲染"],
-    "hot_cases": ["社区投票", "互动游戏", "数据可视化"],
-    "fit_product_types": ["社区工具", "投票", "互动游戏", "数据展示"],
-    "not_fit_product_types": ["电商", "金融", "本地生活"],
-    "automation_level": "semi_automatic",
-    "supports_code_upload": true,
-    "supports_cli_upload": true,
-    "cli_tool": "devvit CLI",
-    "upload_target": "Devvit 平台",
-    "notes": "全球最大论坛社区，适合互动应用"
-  },
-  {
-    "id": "line",
-    "name_cn": "LINE Mini App",
-    "name_en": "LINE Mini App (LIFF)",
-    "platform_type": "messaging",
-    "region": ["JP", "TW", "TH", "ID"],
-    "coverage": "1.9亿月活",
-    "entry_barrier": "中",
-    "review_policy": "审核制",
-    "fee": "免费基础版，高级需付费",
-    "entity_requirement": "LINE 官方账号（企业）",
-    "type_restriction": "无严格限制",
-    "recommendation_stars": 4,
-    "recommendation_level": "high",
-    "status": "active",
-    "opening_method": "review_required",
-    "developer_url": "https://developers.line.biz/en/services/line-mini-app/",
-    "submit_url": "https://developers.line.biz/console/",
-    "official_links": ["https://developers.line.biz/en/docs/liff/overview/"],
-    "required_materials": ["LINE 企业账号", "LIFF App URL", "Channel ID"],
-    "submission_steps": ["创建 LINE Channel", "配置 LIFF App", "部署 Web App", "提交审核"],
-    "compliance_risks": ["日本个人信息保护法"],
-    "technical_limits": ["LIFF SDK", "Web 技术"],
-    "hot_cases": ["LINE Pay", "LINE 外卖", "各类预约工具"],
-    "fit_product_types": ["预约", "支付", "本地服务", "工具"],
-    "not_fit_product_types": ["重度游戏"],
-    "automation_level": "manual",
-    "supports_code_upload": false,
-    "supports_cli_upload": false,
-    "cli_tool": "",
-    "upload_target": "Web 部署 URL",
-    "notes": "日本、台湾、东南亚主流通讯平台"
-  },
-  {
-    "id": "snapchat",
-    "name_cn": "Snapchat Minis / Snap Canvas",
-    "name_en": "Snapchat Minis",
-    "platform_type": "social",
-    "region": ["US", "EU"],
-    "coverage": "8亿月活",
-    "entry_barrier": "高",
-    "review_policy": "合作制",
-    "fee": "未公开",
-    "entity_requirement": "需与 Snap 团队对接",
-    "type_restriction": "偏社交游戏",
-    "recommendation_stars": 2,
-    "recommendation_level": "low",
-    "status": "active",
-    "opening_method": "partner_required",
-    "developer_url": "https://developers.snap.com/minis",
-    "submit_url": "",
-    "official_links": ["https://developers.snap.com/minis"],
-    "required_materials": ["Snap 合作协议"],
-    "submission_steps": ["联系 Snap 商务", "签署合作协议", "开发集成", "审核上线"],
-    "compliance_risks": ["未成年人保护严格"],
-    "technical_limits": ["HTML5", "Snap SDK"],
-    "hot_cases": ["Headspace Mini", "Coachella"],
-    "fit_product_types": ["社交游戏", "AR 工具"],
-    "not_fit_product_types": ["工具", "电商", "内容"],
-    "automation_level": "unknown",
-    "supports_code_upload": false,
-    "supports_cli_upload": false,
-    "cli_tool": "",
-    "upload_target": "",
-    "notes": "门槛高，需要 Snap 官方合作"
-  },
-  {
-    "id": "youtube",
-    "name_cn": "YouTube Playables",
-    "name_en": "YouTube Playables",
-    "platform_type": "content",
-    "region": ["Global"],
-    "coverage": "26亿月活",
-    "entry_barrier": "高",
-    "review_policy": "邀请制",
-    "fee": "未公开",
-    "entity_requirement": "游戏开发商",
-    "type_restriction": "仅 HTML5 游戏",
-    "recommendation_stars": 3,
-    "recommendation_level": "medium",
-    "status": "active",
-    "opening_method": "partner_required",
-    "developer_url": "https://developers.google.com/youtube/gaming/playables",
-    "submit_url": "",
-    "official_links": ["https://developers.google.com/youtube/gaming/playables"],
-    "required_materials": ["Google 开发者账号", "HTML5 游戏包"],
-    "submission_steps": ["申请 Playables 计划", "开发 HTML5 游戏", "提交审核"],
-    "compliance_risks": ["Google Play 政策"],
-    "technical_limits": ["仅支持游戏", "HTML5", "包大小限制"],
-    "hot_cases": ["Angry Birds Showdown", "Cut the Rope"],
-    "fit_product_types": ["HTML5 游戏"],
-    "not_fit_product_types": ["工具", "电商", "社交", "教育"],
-    "automation_level": "unknown",
-    "supports_code_upload": false,
-    "supports_cli_upload": false,
-    "cli_tool": "",
-    "upload_target": "",
-    "notes": "仅适合 HTML5 游戏开发商"
-  },
-  {
-    "id": "apple_mini_apps",
-    "name_cn": "Apple Mini Apps Partner Program",
-    "name_en": "Apple Mini Apps",
-    "platform_type": "os_level",
-    "region": ["Global"],
-    "coverage": "全球 iOS 用户",
-    "entry_barrier": "极高",
-    "review_policy": "邀请制",
-    "fee": "未公开",
-    "entity_requirement": "Apple 合作伙伴",
-    "type_restriction": "平台级应用",
-    "recommendation_stars": 1,
-    "recommendation_level": "low",
-    "status": "active",
-    "opening_method": "invite_only",
-    "developer_url": "https://developer.apple.com",
-    "submit_url": "",
-    "official_links": [],
-    "required_materials": ["Apple 合作协议"],
-    "submission_steps": ["获得 Apple 邀请", "签署合作协议", "开发集成"],
-    "compliance_risks": ["Apple 审核极其严格"],
-    "technical_limits": ["必须用 Apple 技术栈"],
-    "hot_cases": [],
-    "fit_product_types": ["平台级服务"],
-    "not_fit_product_types": ["个人开发者产品", "小团队产品"],
-    "automation_level": "unknown",
-    "supports_code_upload": false,
-    "supports_cli_upload": false,
-    "cli_tool": "",
-    "upload_target": "",
-    "notes": "仅适合大型平台公司，个人/小团队不适用"
-  },
-  {
-    "id": "kakaotalk",
-    "name_cn": "KakaoTalk",
-    "name_en": "KakaoTalk",
-    "platform_type": "messaging",
-    "region": ["KR"],
-    "coverage": "5300万（韩国）",
-    "entry_barrier": "N/A",
-    "review_policy": "N/A",
-    "fee": "N/A",
-    "entity_requirement": "N/A",
-    "type_restriction": "N/A",
-    "recommendation_stars": 0,
-    "recommendation_level": "not_supported",
-    "status": "not_supported",
-    "opening_method": "unsupported",
-    "developer_url": "https://developers.kakao.com",
-    "submit_url": "",
-    "official_links": [],
-    "required_materials": [],
-    "submission_steps": [],
-    "compliance_risks": [],
-    "technical_limits": [],
-    "hot_cases": [],
-    "fit_product_types": [],
-    "not_fit_product_types": [],
-    "automation_level": "unsupported",
-    "supports_code_upload": false,
-    "supports_cli_upload": false,
-    "cli_tool": "",
-    "upload_target": "",
-    "notes": "无小程序/Mini App 生态，不适用"
-  },
-  {
-    "id": "google_play_instant",
-    "name_cn": "Google Play Instant",
-    "name_en": "Google Play Instant",
-    "platform_type": "app_store",
-    "region": ["Global"],
-    "coverage": "N/A",
-    "entry_barrier": "N/A",
-    "review_policy": "N/A",
-    "fee": "N/A",
-    "entity_requirement": "N/A",
-    "type_restriction": "N/A",
-    "recommendation_stars": 0,
-    "recommendation_level": "not_supported",
-    "status": "not_supported",
-    "opening_method": "unsupported",
-    "developer_url": "",
-    "submit_url": "",
-    "official_links": [],
-    "required_materials": [],
-    "submission_steps": [],
-    "compliance_risks": [],
-    "technical_limits": [],
-    "hot_cases": [],
-    "fit_product_types": [],
-    "not_fit_product_types": [],
-    "automation_level": "unsupported",
-    "supports_code_upload": false,
-    "supports_cli_upload": false,
-    "cli_tool": "",
-    "upload_target": "",
-    "notes": "Google Play Instant 已停止接受新应用"
-  },
-  {
-    "id": "vk_mini_apps",
-    "name_cn": "VK Mini Apps",
-    "name_en": "VK Mini Apps",
-    "platform_type": "social",
-    "region": ["RU", "CIS"],
-    "coverage": "1亿月活",
-    "entry_barrier": "待调研",
-    "review_policy": "待调研",
-    "fee": "待调研",
-    "entity_requirement": "待调研",
-    "type_restriction": "待调研",
-    "recommendation_stars": 0,
-    "recommendation_level": "research_needed",
-    "status": "research_needed",
-    "opening_method": "self_service",
-    "developer_url": "https://dev.vk.com/mini-apps",
-    "submit_url": "",
-    "official_links": ["https://dev.vk.com/mini-apps"],
-    "required_materials": [],
-    "submission_steps": [],
-    "compliance_risks": ["俄罗斯数据本地化法规"],
-    "technical_limits": [],
-    "hot_cases": [],
-    "fit_product_types": [],
-    "not_fit_product_types": [],
-    "automation_level": "unknown",
-    "supports_code_upload": false,
-    "supports_cli_upload": false,
-    "cli_tool": "",
-    "upload_target": "",
-    "notes": "俄罗斯/独联体市场，待进一步调研"
-  },
-  {
-    "id": "alipay_plus",
-    "name_cn": "Alipay+ / D-store",
-    "name_en": "Alipay+ Mini Program",
-    "platform_type": "payment",
-    "region": ["SEA", "Global"],
-    "coverage": "待调研",
-    "entry_barrier": "待调研",
-    "review_policy": "待调研",
-    "fee": "待调研",
-    "entity_requirement": "待调研",
-    "type_restriction": "待调研",
-    "recommendation_stars": 0,
-    "recommendation_level": "research_needed",
-    "status": "research_needed",
-    "opening_method": "review_required",
-    "developer_url": "",
-    "submit_url": "",
-    "official_links": [],
-    "required_materials": [],
-    "submission_steps": [],
-    "compliance_risks": [],
-    "technical_limits": [],
-    "hot_cases": [],
-    "fit_product_types": [],
-    "not_fit_product_types": [],
-    "automation_level": "unknown",
-    "supports_code_upload": false,
-    "supports_cli_upload": false,
-    "cli_tool": "",
-    "upload_target": "",
-    "notes": "Alipay 国际版小程序平台，面向东南亚，待深入调研"
-  },
-  {
-    "id": "tiktok_mini_apps",
-    "name_cn": "TikTok Mini Apps",
-    "name_en": "TikTok Web App / Mini Apps",
-    "platform_type": "social",
-    "region": ["Global"],
-    "coverage": "待调研",
-    "entry_barrier": "待调研",
-    "review_policy": "待调研",
-    "fee": "待调研",
-    "entity_requirement": "待调研",
-    "type_restriction": "待调研",
-    "recommendation_stars": 0,
-    "recommendation_level": "research_needed",
-    "status": "research_needed",
-    "opening_method": "review_required",
-    "developer_url": "https://developers.tiktok.com",
-    "submit_url": "",
-    "official_links": ["https://developers.tiktok.com"],
-    "required_materials": [],
-    "submission_steps": [],
-    "compliance_risks": ["各国数据合规", "TikTok 政策变动风险"],
-    "technical_limits": [],
-    "hot_cases": [],
-    "fit_product_types": [],
-    "not_fit_product_types": [],
-    "automation_level": "unknown",
-    "supports_code_upload": false,
-    "supports_cli_upload": false,
-    "cli_tool": "",
-    "upload_target": "",
-    "notes": "TikTok 国际版 Mini App 能力待调研，政策不稳定"
-  }
+    {
+        "id":  "wechat",
+        "name_cn":  "微信小程序",
+        "name_en":  "WeChat Mini Program",
+        "platform_type":  "super_app",
+        "region":  [
+                       "CN"
+                   ],
+        "coverage":  "13亿用户",
+        "entry_barrier":  "低",
+        "review_policy":  "审核制，1-7个工作日",
+        "fee":  "免费",
+        "entity_requirement":  "中国大陆企业/个人均可",
+        "type_restriction":  "禁止赌博、色情、违法内容",
+        "recommendation_stars":  5,
+        "recommendation_level":  "high",
+        "status":  "active",
+        "opening_method":  "self_service",
+        "developer_url":  "https://mp.weixin.qq.com",
+        "submit_url":  "https://mp.weixin.qq.com",
+        "official_links":  [
+                               "https://developers.weixin.qq.com/miniprogram/dev/framework/"
+                           ],
+        "required_materials":  [
+                                   "AppID",
+                                   "应用名称",
+                                   "简介",
+                                   "服务类目",
+                                   "隐私政策",
+                                   "用户协议"
+                               ],
+        "submission_steps":  [
+                                 "注册账号",
+                                 "创建小程序",
+                                 "上传代码",
+                                 "填写资料",
+                                 "提交审核",
+                                 "发布"
+                             ],
+        "compliance_risks":  [
+                                 "内容安全审核严格",
+                                 "用户数据合规"
+                             ],
+        "technical_limits":  [
+                                 "主包2MB",
+                                 "总包20MB",
+                                 "无后台运行"
+                             ],
+        "hot_cases":  [
+                          "拼多多",
+                          "京东购物",
+                          "美团"
+                      ],
+        "fit_product_types":  [
+                                  "工具",
+                                  "电商",
+                                  "生活服务",
+                                  "教育",
+                                  "内容"
+                              ],
+        "not_fit_product_types":  [
+                                      "重度游戏",
+                                      "直播",
+                                      "VPN"
+                                  ],
+        "automation_level":  "semi_automatic",
+        "supports_code_upload":  true,
+        "supports_cli_upload":  true,
+        "cli_tool":  "miniprogram-ci",
+        "upload_target":  "dist/build/mp-weixin",
+        "notes":  "国内最大小程序平台，流量最大"
+    },
+    {
+        "id":  "alipay",
+        "name_cn":  "支付宝小程序",
+        "name_en":  "Alipay Mini Program",
+        "platform_type":  "super_app",
+        "region":  [
+                       "CN"
+                   ],
+        "coverage":  "10亿用户",
+        "entry_barrier":  "低",
+        "review_policy":  "审核制，1-5个工作日",
+        "fee":  "免费",
+        "entity_requirement":  "中国大陆企业",
+        "type_restriction":  "偏生活服务、金融工具",
+        "recommendation_stars":  4,
+        "recommendation_level":  "high",
+        "status":  "active",
+        "opening_method":  "self_service",
+        "developer_url":  "https://open.alipay.com",
+        "submit_url":  "https://open.alipay.com/develop/manage",
+        "official_links":  [
+                               "https://opendocs.alipay.com/mini/"
+                           ],
+        "required_materials":  [
+                                   "AppID",
+                                   "应用名称",
+                                   "简介",
+                                   "服务类目"
+                               ],
+        "submission_steps":  [
+                                 "注册开放平台",
+                                 "创建应用",
+                                 "上传代码",
+                                 "提交审核"
+                             ],
+        "compliance_risks":  [
+                                 "金融类需额外资质"
+                             ],
+        "technical_limits":  [
+                                 "包大小4MB"
+                             ],
+        "hot_cases":  [
+                          "芝麻信用",
+                          "花呗",
+                          "城市服务"
+                      ],
+        "fit_product_types":  [
+                                  "生活服务",
+                                  "金融工具",
+                                  "出行"
+                              ],
+        "not_fit_product_types":  [
+                                      "社交",
+                                      "游戏"
+                                  ],
+        "automation_level":  "manual",
+        "supports_code_upload":  true,
+        "supports_cli_upload":  false,
+        "cli_tool":  "",
+        "upload_target":  "dist/build/mp-alipay",
+        "notes":  "适合生活服务和金融场景"
+    },
+    {
+        "id":  "douyin",
+        "name_cn":  "抖音小程序",
+        "name_en":  "Douyin Mini Program",
+        "platform_type":  "super_app",
+        "region":  [
+                       "CN"
+                   ],
+        "coverage":  "7亿日活",
+        "entry_barrier":  "低",
+        "review_policy":  "审核制，1-3个工作日",
+        "fee":  "免费",
+        "entity_requirement":  "中国大陆企业/个人",
+        "type_restriction":  "偏内容和电商",
+        "recommendation_stars":  4,
+        "recommendation_level":  "high",
+        "status":  "active",
+        "opening_method":  "self_service",
+        "developer_url":  "https://developer.open-douyin.com",
+        "submit_url":  "https://developer.open-douyin.com",
+        "official_links":  [
+                               "https://developer.open-douyin.com/docs/resource/zh-CN/mini-app/develop/guide/"
+                           ],
+        "required_materials":  [
+                                   "AppID",
+                                   "应用名称",
+                                   "简介"
+                               ],
+        "submission_steps":  [
+                                 "注册开发者",
+                                 "创建应用",
+                                 "上传代码",
+                                 "提交审核"
+                             ],
+        "compliance_risks":  [
+                                 "内容审核"
+                             ],
+        "technical_limits":  [
+                                 "包大小4MB"
+                             ],
+        "hot_cases":  [
+                          "抖音电商",
+                          "小游戏"
+                      ],
+        "fit_product_types":  [
+                                  "电商",
+                                  "内容",
+                                  "游戏",
+                                  "工具"
+                              ],
+        "not_fit_product_types":  [
+                                      "金融",
+                                      "医疗"
+                                  ],
+        "automation_level":  "manual",
+        "supports_code_upload":  true,
+        "supports_cli_upload":  false,
+        "cli_tool":  "",
+        "upload_target":  "dist/build/mp-toutiao",
+        "notes":  "流量增长最快的小程序平台"
+    },
+    {
+        "id":  "telegram",
+        "name_cn":  "Telegram Mini Apps",
+        "name_en":  "Telegram Mini Apps",
+        "platform_type":  "messaging",
+        "region":  [
+                       "Global"
+                   ],
+        "coverage":  "9亿月活",
+        "entry_barrier":  "极低",
+        "review_policy":  "无审核，部署即上线",
+        "fee":  "免费",
+        "entity_requirement":  "无",
+        "type_restriction":  "无严格限制",
+        "recommendation_stars":  5,
+        "recommendation_level":  "high",
+        "status":  "active",
+        "opening_method":  "self_service",
+        "developer_url":  "https://core.telegram.org/bots/webapps",
+        "submit_url":  "https://t.me/BotFather",
+        "official_links":  [
+                               "https://core.telegram.org/bots/webapps",
+                               "https://telegram.org/blog/mini-apps"
+                           ],
+        "required_materials":  [
+                                   "Bot Token",
+                                   "WebApp URL"
+                               ],
+        "submission_steps":  [
+                                 "创建 Bot (@BotFather)",
+                                 "部署 Web App",
+                                 "配置 WebApp URL",
+                                 "上线"
+                             ],
+        "compliance_risks":  [
+                                 "部分国家封锁 Telegram"
+                             ],
+        "technical_limits":  [
+                                 "前端 Web 技术",
+                                 "无原生 API",
+                                 "依赖网络"
+                             ],
+        "hot_cases":  [
+                          "Notcoin",
+                          "Hamster Kombat",
+                          "TON 生态应用"
+                      ],
+        "fit_product_types":  [
+                                  "工具",
+                                  "游戏",
+                                  "社交",
+                                  "加密货币",
+                                  "电商"
+                              ],
+        "not_fit_product_types":  [
+
+                                  ],
+        "automation_level":  "automatic",
+        "supports_code_upload":  false,
+        "supports_cli_upload":  false,
+        "cli_tool":  "Vercel CLI / Cloudflare Pages",
+        "upload_target":  "Web 部署 URL",
+        "notes":  "无审核、无费用、全球覆盖，最适合快速验证"
+    },
+    {
+        "id":  "discord",
+        "name_cn":  "Discord Activities",
+        "name_en":  "Discord Activities",
+        "platform_type":  "community",
+        "region":  [
+                       "Global"
+                   ],
+        "coverage":  "2亿月活",
+        "entry_barrier":  "中",
+        "review_policy":  "审核制",
+        "fee":  "免费",
+        "entity_requirement":  "无严格要求",
+        "type_restriction":  "偏游戏和社交互动",
+        "recommendation_stars":  4,
+        "recommendation_level":  "high",
+        "status":  "active",
+        "opening_method":  "review_required",
+        "developer_url":  "https://discord.com/developers/docs/activities/overview",
+        "submit_url":  "https://discord.com/developers/applications",
+        "official_links":  [
+                               "https://discord.com/developers/docs/activities/overview"
+                           ],
+        "required_materials":  [
+                                   "Application ID",
+                                   "Activity URL"
+                               ],
+        "submission_steps":  [
+                                 "创建 Application",
+                                 "配置 Activity",
+                                 "嵌入 iframe",
+                                 "提交审核"
+                             ],
+        "compliance_risks":  [
+                                 "需符合 Discord 社区准则"
+                             ],
+        "technical_limits":  [
+                                 "iframe 嵌入",
+                                 "SDK 集成要求"
+                             ],
+        "hot_cases":  [
+                          "Poker Night",
+                          "Sketch Heads",
+                          "Watch Together"
+                      ],
+        "fit_product_types":  [
+                                  "多人游戏",
+                                  "社交互动",
+                                  "协作工具"
+                              ],
+        "not_fit_product_types":  [
+                                      "单人工具",
+                                      "电商",
+                                      "内容阅读"
+                                  ],
+        "automation_level":  "semi_automatic",
+        "supports_code_upload":  false,
+        "supports_cli_upload":  false,
+        "cli_tool":  "",
+        "upload_target":  "Web 部署 URL",
+        "notes":  "适合多人互动场景，游戏社区流量大"
+    },
+    {
+        "id":  "reddit",
+        "name_cn":  "Reddit Devvit",
+        "name_en":  "Reddit Developer Platform (Devvit)",
+        "platform_type":  "community",
+        "region":  [
+                       "Global"
+                   ],
+        "coverage":  "17亿月活",
+        "entry_barrier":  "中",
+        "review_policy":  "审核制",
+        "fee":  "免费",
+        "entity_requirement":  "无",
+        "type_restriction":  "社区互动类",
+        "recommendation_stars":  4,
+        "recommendation_level":  "high",
+        "status":  "active",
+        "opening_method":  "review_required",
+        "developer_url":  "https://developers.reddit.com",
+        "submit_url":  "https://developers.reddit.com",
+        "official_links":  [
+                               "https://developers.reddit.com/docs/"
+                           ],
+        "required_materials":  [
+                                   "Reddit 开发者账号",
+                                   "Devvit App 配置"
+                               ],
+        "submission_steps":  [
+                                 "注册开发者",
+                                 "创建 Devvit App",
+                                 "本地开发调试",
+                                 "提交审核",
+                                 "发布到社区"
+                             ],
+        "compliance_risks":  [
+                                 "需符合 Reddit 内容政策"
+                             ],
+        "technical_limits":  [
+                                 "Devvit 框架限制",
+                                 "服务端渲染"
+                             ],
+        "hot_cases":  [
+                          "社区投票",
+                          "互动游戏",
+                          "数据可视化"
+                      ],
+        "fit_product_types":  [
+                                  "社区工具",
+                                  "投票",
+                                  "互动游戏",
+                                  "数据展示"
+                              ],
+        "not_fit_product_types":  [
+                                      "电商",
+                                      "金融",
+                                      "本地生活"
+                                  ],
+        "automation_level":  "semi_automatic",
+        "supports_code_upload":  true,
+        "supports_cli_upload":  true,
+        "cli_tool":  "devvit CLI",
+        "upload_target":  "Devvit 平台",
+        "notes":  "全球最大论坛社区，适合互动应用"
+    },
+    {
+        "id":  "line",
+        "name_cn":  "LINE Mini App",
+        "name_en":  "LINE Mini App (LIFF)",
+        "platform_type":  "messaging",
+        "region":  [
+                       "JP",
+                       "TW",
+                       "TH",
+                       "ID"
+                   ],
+        "coverage":  "1.9亿月活",
+        "entry_barrier":  "中",
+        "review_policy":  "审核制",
+        "fee":  "免费基础版，高级需付费",
+        "entity_requirement":  "LINE 官方账号（企业）",
+        "type_restriction":  "无严格限制",
+        "recommendation_stars":  4,
+        "recommendation_level":  "high",
+        "status":  "active",
+        "opening_method":  "review_required",
+        "developer_url":  "https://developers.line.biz/en/services/line-mini-app/",
+        "submit_url":  "https://developers.line.biz/console/",
+        "official_links":  [
+                               "https://developers.line.biz/en/docs/liff/overview/"
+                           ],
+        "required_materials":  [
+                                   "LINE 企业账号",
+                                   "LIFF App URL",
+                                   "Channel ID"
+                               ],
+        "submission_steps":  [
+                                 "创建 LINE Channel",
+                                 "配置 LIFF App",
+                                 "部署 Web App",
+                                 "提交审核"
+                             ],
+        "compliance_risks":  [
+                                 "日本个人信息保护法"
+                             ],
+        "technical_limits":  [
+                                 "LIFF SDK",
+                                 "Web 技术"
+                             ],
+        "hot_cases":  [
+                          "LINE Pay",
+                          "LINE 外卖",
+                          "各类预约工具"
+                      ],
+        "fit_product_types":  [
+                                  "预约",
+                                  "支付",
+                                  "本地服务",
+                                  "工具"
+                              ],
+        "not_fit_product_types":  [
+                                      "重度游戏"
+                                  ],
+        "automation_level":  "manual",
+        "supports_code_upload":  false,
+        "supports_cli_upload":  false,
+        "cli_tool":  "",
+        "upload_target":  "Web 部署 URL",
+        "notes":  "日本、台湾、东南亚主流通讯平台"
+    },
+    {
+        "id":  "snapchat",
+        "name_cn":  "Snapchat Minis / Snap Canvas",
+        "name_en":  "Snapchat Minis",
+        "platform_type":  "social",
+        "region":  [
+                       "US",
+                       "EU"
+                   ],
+        "coverage":  "8亿月活",
+        "entry_barrier":  "高",
+        "review_policy":  "合作制",
+        "fee":  "未公开",
+        "entity_requirement":  "需与 Snap 团队对接",
+        "type_restriction":  "偏社交游戏",
+        "recommendation_stars":  2,
+        "recommendation_level":  "low",
+        "status":  "research_needed",
+        "opening_method":  "partner_required",
+        "developer_url":  "https://developers.snap.com/minis",
+        "submit_url":  "",
+        "official_links":  [
+                               "https://developers.snap.com/minis"
+                           ],
+        "required_materials":  [
+                                   "Snap 合作协议"
+                               ],
+        "submission_steps":  [
+                                 "联系 Snap 商务",
+                                 "签署合作协议",
+                                 "开发集成",
+                                 "审核上线"
+                             ],
+        "compliance_risks":  [
+                                 "未成年人保护严格"
+                             ],
+        "technical_limits":  [
+                                 "HTML5",
+                                 "Snap SDK"
+                             ],
+        "hot_cases":  [
+                          "Headspace Mini",
+                          "Coachella"
+                      ],
+        "fit_product_types":  [
+                                  "社交游戏",
+                                  "AR 工具"
+                              ],
+        "not_fit_product_types":  [
+                                      "工具",
+                                      "电商",
+                                      "内容"
+                                  ],
+        "automation_level":  "unknown",
+        "supports_code_upload":  false,
+        "supports_cli_upload":  false,
+        "cli_tool":  "",
+        "upload_target":  "",
+        "notes":  "门槛高，需要 Snap 官方合作"
+    },
+    {
+        "id":  "youtube",
+        "name_cn":  "YouTube Playables",
+        "name_en":  "YouTube Playables",
+        "platform_type":  "content",
+        "region":  [
+                       "Global"
+                   ],
+        "coverage":  "26亿月活",
+        "entry_barrier":  "高",
+        "review_policy":  "邀请制",
+        "fee":  "未公开",
+        "entity_requirement":  "游戏开发商",
+        "type_restriction":  "仅 HTML5 游戏",
+        "recommendation_stars":  3,
+        "recommendation_level":  "medium",
+        "status":  "research_needed",
+        "opening_method":  "partner_required",
+        "developer_url":  "https://developers.google.com/youtube/gaming/playables",
+        "submit_url":  "",
+        "official_links":  [
+                               "https://developers.google.com/youtube/gaming/playables"
+                           ],
+        "required_materials":  [
+                                   "Google 开发者账号",
+                                   "HTML5 游戏包"
+                               ],
+        "submission_steps":  [
+                                 "申请 Playables 计划",
+                                 "开发 HTML5 游戏",
+                                 "提交审核"
+                             ],
+        "compliance_risks":  [
+                                 "Google Play 政策"
+                             ],
+        "technical_limits":  [
+                                 "仅支持游戏",
+                                 "HTML5",
+                                 "包大小限制"
+                             ],
+        "hot_cases":  [
+                          "Angry Birds Showdown",
+                          "Cut the Rope"
+                      ],
+        "fit_product_types":  [
+                                  "HTML5 游戏"
+                              ],
+        "not_fit_product_types":  [
+                                      "工具",
+                                      "电商",
+                                      "社交",
+                                      "教育"
+                                  ],
+        "automation_level":  "unknown",
+        "supports_code_upload":  false,
+        "supports_cli_upload":  false,
+        "cli_tool":  "",
+        "upload_target":  "",
+        "notes":  "仅适合 HTML5 游戏开发商"
+    },
+    {
+        "id":  "apple_mini_apps",
+        "name_cn":  "Apple Mini Apps Partner Program",
+        "name_en":  "Apple Mini Apps",
+        "platform_type":  "os_level",
+        "region":  [
+                       "Global"
+                   ],
+        "coverage":  "全球 iOS 用户",
+        "entry_barrier":  "极高",
+        "review_policy":  "邀请制",
+        "fee":  "未公开",
+        "entity_requirement":  "Apple 合作伙伴",
+        "type_restriction":  "平台级应用",
+        "recommendation_stars":  1,
+        "recommendation_level":  "low",
+        "status":  "research_needed",
+        "opening_method":  "invite_only",
+        "developer_url":  "https://developer.apple.com",
+        "submit_url":  "",
+        "official_links":  [
+
+                           ],
+        "required_materials":  [
+                                   "Apple 合作协议"
+                               ],
+        "submission_steps":  [
+                                 "获得 Apple 邀请",
+                                 "签署合作协议",
+                                 "开发集成"
+                             ],
+        "compliance_risks":  [
+                                 "Apple 审核极其严格"
+                             ],
+        "technical_limits":  [
+                                 "必须用 Apple 技术栈"
+                             ],
+        "hot_cases":  [
+
+                      ],
+        "fit_product_types":  [
+                                  "平台级服务"
+                              ],
+        "not_fit_product_types":  [
+                                      "个人开发者产品",
+                                      "小团队产品"
+                                  ],
+        "automation_level":  "unknown",
+        "supports_code_upload":  false,
+        "supports_cli_upload":  false,
+        "cli_tool":  "",
+        "upload_target":  "",
+        "notes":  "仅适合大型平台公司，个人/小团队不适用"
+    },
+    {
+        "id":  "kakaotalk",
+        "name_cn":  "KakaoTalk",
+        "name_en":  "KakaoTalk",
+        "platform_type":  "messaging",
+        "region":  [
+                       "KR"
+                   ],
+        "coverage":  "5300万（韩国）",
+        "entry_barrier":  "N/A",
+        "review_policy":  "N/A",
+        "fee":  "N/A",
+        "entity_requirement":  "N/A",
+        "type_restriction":  "N/A",
+        "recommendation_stars":  0,
+        "recommendation_level":  "not_supported",
+        "status":  "not_supported",
+        "opening_method":  "unsupported",
+        "developer_url":  "https://developers.kakao.com",
+        "submit_url":  "",
+        "official_links":  [
+
+                           ],
+        "required_materials":  [
+
+                               ],
+        "submission_steps":  [
+
+                             ],
+        "compliance_risks":  [
+
+                             ],
+        "technical_limits":  [
+
+                             ],
+        "hot_cases":  [
+
+                      ],
+        "fit_product_types":  [
+
+                              ],
+        "not_fit_product_types":  [
+
+                                  ],
+        "automation_level":  "unsupported",
+        "supports_code_upload":  false,
+        "supports_cli_upload":  false,
+        "cli_tool":  "",
+        "upload_target":  "",
+        "notes":  "无小程序/Mini App 生态，不适用"
+    },
+    {
+        "id":  "google_play_instant",
+        "name_cn":  "Google Play Instant",
+        "name_en":  "Google Play Instant",
+        "platform_type":  "app_store",
+        "region":  [
+                       "Global"
+                   ],
+        "coverage":  "N/A",
+        "entry_barrier":  "N/A",
+        "review_policy":  "N/A",
+        "fee":  "N/A",
+        "entity_requirement":  "N/A",
+        "type_restriction":  "N/A",
+        "recommendation_stars":  0,
+        "recommendation_level":  "not_supported",
+        "status":  "not_supported",
+        "opening_method":  "unsupported",
+        "developer_url":  "",
+        "submit_url":  "",
+        "official_links":  [
+
+                           ],
+        "required_materials":  [
+
+                               ],
+        "submission_steps":  [
+
+                             ],
+        "compliance_risks":  [
+
+                             ],
+        "technical_limits":  [
+
+                             ],
+        "hot_cases":  [
+
+                      ],
+        "fit_product_types":  [
+
+                              ],
+        "not_fit_product_types":  [
+
+                                  ],
+        "automation_level":  "unsupported",
+        "supports_code_upload":  false,
+        "supports_cli_upload":  false,
+        "cli_tool":  "",
+        "upload_target":  "",
+        "notes":  "Google Play Instant 已停止接受新应用"
+    },
+    {
+        "id":  "vk_mini_apps",
+        "name_cn":  "VK Mini Apps",
+        "name_en":  "VK Mini Apps",
+        "platform_type":  "social",
+        "region":  [
+                       "RU",
+                       "CIS"
+                   ],
+        "coverage":  "1亿月活",
+        "entry_barrier":  "待调研",
+        "review_policy":  "待调研",
+        "fee":  "待调研",
+        "entity_requirement":  "待调研",
+        "type_restriction":  "待调研",
+        "recommendation_stars":  0,
+        "recommendation_level":  "research_needed",
+        "status":  "research_needed",
+        "opening_method":  "self_service",
+        "developer_url":  "https://dev.vk.com/mini-apps",
+        "submit_url":  "",
+        "official_links":  [
+                               "https://dev.vk.com/mini-apps"
+                           ],
+        "required_materials":  [
+
+                               ],
+        "submission_steps":  [
+
+                             ],
+        "compliance_risks":  [
+                                 "俄罗斯数据本地化法规"
+                             ],
+        "technical_limits":  [
+
+                             ],
+        "hot_cases":  [
+
+                      ],
+        "fit_product_types":  [
+
+                              ],
+        "not_fit_product_types":  [
+
+                                  ],
+        "automation_level":  "unknown",
+        "supports_code_upload":  false,
+        "supports_cli_upload":  false,
+        "cli_tool":  "",
+        "upload_target":  "",
+        "notes":  "俄罗斯/独联体市场，待进一步调研"
+    },
+    {
+        "id":  "alipay_plus",
+        "name_cn":  "Alipay+ / D-store",
+        "name_en":  "Alipay+ Mini Program",
+        "platform_type":  "payment",
+        "region":  [
+                       "SEA",
+                       "Global"
+                   ],
+        "coverage":  "待调研",
+        "entry_barrier":  "待调研",
+        "review_policy":  "待调研",
+        "fee":  "待调研",
+        "entity_requirement":  "待调研",
+        "type_restriction":  "待调研",
+        "recommendation_stars":  0,
+        "recommendation_level":  "research_needed",
+        "status":  "research_needed",
+        "opening_method":  "review_required",
+        "developer_url":  "",
+        "submit_url":  "",
+        "official_links":  [
+
+                           ],
+        "required_materials":  [
+
+                               ],
+        "submission_steps":  [
+
+                             ],
+        "compliance_risks":  [
+
+                             ],
+        "technical_limits":  [
+
+                             ],
+        "hot_cases":  [
+
+                      ],
+        "fit_product_types":  [
+
+                              ],
+        "not_fit_product_types":  [
+
+                                  ],
+        "automation_level":  "unknown",
+        "supports_code_upload":  false,
+        "supports_cli_upload":  false,
+        "cli_tool":  "",
+        "upload_target":  "",
+        "notes":  "Alipay 国际版小程序平台，面向东南亚，待深入调研"
+    },
+    {
+        "id":  "tiktok_mini_apps",
+        "name_cn":  "TikTok Mini Apps",
+        "name_en":  "TikTok Web App / Mini Apps",
+        "platform_type":  "social",
+        "region":  [
+                       "Global"
+                   ],
+        "coverage":  "待调研",
+        "entry_barrier":  "待调研",
+        "review_policy":  "待调研",
+        "fee":  "待调研",
+        "entity_requirement":  "待调研",
+        "type_restriction":  "待调研",
+        "recommendation_stars":  0,
+        "recommendation_level":  "research_needed",
+        "status":  "research_needed",
+        "opening_method":  "review_required",
+        "developer_url":  "https://developers.tiktok.com",
+        "submit_url":  "",
+        "official_links":  [
+                               "https://developers.tiktok.com"
+                           ],
+        "required_materials":  [
+
+                               ],
+        "submission_steps":  [
+
+                             ],
+        "compliance_risks":  [
+                                 "各国数据合规",
+                                 "TikTok 政策变动风险"
+                             ],
+        "technical_limits":  [
+
+                             ],
+        "hot_cases":  [
+
+                      ],
+        "fit_product_types":  [
+
+                              ],
+        "not_fit_product_types":  [
+
+                                  ],
+        "automation_level":  "unknown",
+        "supports_code_upload":  false,
+        "supports_cli_upload":  false,
+        "cli_tool":  "",
+        "upload_target":  "",
+        "notes":  "TikTok 国际版 Mini App 能力待调研，政策不稳定"
+    }
 ]

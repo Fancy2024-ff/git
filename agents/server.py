@@ -288,7 +288,7 @@ class DemoStartRequest(BaseModel):
 
 @app.post("/api/demo/start")
 async def start_demo(req: DemoStartRequest = DemoStartRequest()):
-    """Start the pipeline and return job info when complete."""
+    """Start the pipeline in background, return immediately with job acceptance."""
     global pipeline_process, pipeline_logs
 
     if pipeline_process and pipeline_process.poll() is None:
@@ -311,36 +311,66 @@ async def start_demo(req: DemoStartRequest = DemoStartRequest()):
         env={**dict(__import__("os").environ), "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"},
     )
 
-    # Wait for completion (pipeline takes ~40s with build)
-    stdout, _ = pipeline_process.communicate(timeout=120)
-    pipeline_logs = stdout.strip().split("\n") if stdout else []
-    exit_code = pipeline_process.returncode
+    # Start background reader that streams to WebSocket
+    asyncio.get_event_loop().create_task(_stream_pipeline_output())
+
+    return {"accepted": True, "mode": req.mode, "pid": pipeline_process.pid}
+
+
+async def _stream_pipeline_output():
+    """Read pipeline stdout line by line, broadcast to WS clients, detect completion."""
+    global pipeline_process, pipeline_logs
+    import asyncio as _aio
+
+    loop = _aio.get_event_loop()
+    job_id = None
+
+    while pipeline_process and pipeline_process.poll() is None:
+        line = await loop.run_in_executor(None, pipeline_process.stdout.readline)
+        if not line:
+            break
+        line = line.rstrip()
+        pipeline_logs.append(line)
+
+        # Extract job_id
+        if "Job ID:" in line and not job_id:
+            job_id = line.split("Job ID:")[-1].strip()
+
+        # Broadcast to WS clients
+        msg = json.dumps({"type": "log", "data": line, "job_id": job_id})
+        for ws in connected_clients[:]:
+            try:
+                await ws.send_text(msg)
+            except Exception:
+                connected_clients.remove(ws)
+
+    # Pipeline finished
+    exit_code = pipeline_process.returncode if pipeline_process else -1
     pipeline_process = None
 
-    # Broadcast final logs to WS clients
+    # Find job_id from logs if not found yet
+    if not job_id:
+        for l in pipeline_logs:
+            if "Job ID:" in l:
+                job_id = l.split("Job ID:")[-1].strip()
+                break
+
+    # Broadcast completion
+    complete_msg = json.dumps({"type": "pipeline_finished", "job_id": job_id, "exit_code": exit_code, "success": exit_code == 0})
     for ws in connected_clients[:]:
         try:
-            import asyncio
-            asyncio.get_event_loop().create_task(
-                ws.send_text(json.dumps({"type": "complete", "exit_code": exit_code}))
-            )
+            await ws.send_text(complete_msg)
         except Exception:
-            pass
+            connected_clients.remove(ws)
 
-    # Find the new job ID from output
-    job_id = None
-    for line in pipeline_logs:
-        if "Job ID:" in line:
-            job_id = line.split("Job ID:")[-1].strip()
-            break
 
-    return {
-        "success": exit_code == 0,
-        "job_id": job_id,
-        "exit_code": exit_code,
-        "log_lines": len(pipeline_logs),
-        "logs": pipeline_logs[-50:],
-    }
+# === ROUTES: Pipeline Status ===
+
+@app.get("/api/pipeline/status")
+def get_pipeline_status():
+    """Check if pipeline is running."""
+    running = pipeline_process is not None and pipeline_process.poll() is None
+    return {"running": running, "log_lines": len(pipeline_logs), "logs": pipeline_logs[-30:]}
 
 
 # === WebSocket: Real-time pipeline logs ===

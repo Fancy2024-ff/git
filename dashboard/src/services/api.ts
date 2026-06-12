@@ -23,7 +23,7 @@ export const api = {
   getJobs: () => get<{ jobs: JobSummary[] }>('/api/jobs'),
   getLatestJob: () => get<JobDetail>('/api/jobs/latest'),
   getJob: (id: string) => get<JobDetail>(`/api/jobs/${id}`),
-  startPipeline: (mode: string = 'demo') => post<DemoResult>('/api/demo/start', { mode }),
+  startPipeline: (mode: string = 'demo') => post<{ accepted: boolean; mode: string; pid: number }>('/api/demo/start', { mode }),
   getRealInputs: () => get<{ apps: any[]; exists: boolean }>('/api/real-inputs/apps'),
   saveRealInputs: (apps: any[]) => post('/api/real-inputs/apps', apps),
   getPlatforms: () => get<{ platforms: any[]; total: number }>('/api/platforms'),

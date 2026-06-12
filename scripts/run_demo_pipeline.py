@@ -1434,7 +1434,7 @@ def main():
     registry_file = DATA_DIR / "platforms" / "platform-registry.json"
     registry = {}
     if registry_file.exists():
-        reg_list = json.loads(registry_file.read_text(encoding="utf-8"))
+        reg_list = json.loads(registry_file.read_text(encoding="utf-8-sig"))
         registry = {p["id"]: p for p in reg_list}
 
     for plat in opportunity["target_platforms"]:
