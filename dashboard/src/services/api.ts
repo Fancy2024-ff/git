@@ -39,11 +39,33 @@ export const api = {
   uploadWechat: () => post<{ upload_passed: boolean; reason: string }>('/api/platforms/wechat/upload'),
 }
 
-export function connectPipelineWS(jobId: string, onMessage: (data: any) => void): WebSocket {
-  const ws = new WebSocket(`${WS_BASE}/ws/pipeline/${jobId}`)
-  ws.onmessage = (e) => {
-    try { onMessage(JSON.parse(e.data)) } catch {}
+export function connectPipelineWS(jobId: string, onMessage: (data: any) => void): { disconnect: () => void } {
+  let ws: WebSocket | null = null
+  let retryCount = 0
+  let stopped = false
+
+  function connect() {
+    if (stopped) return
+    ws = new WebSocket(`${WS_BASE}/ws/pipeline/${jobId}`)
+    ws.onopen = () => { retryCount = 0 }
+    ws.onmessage = (e) => {
+      try { onMessage(JSON.parse(e.data)) } catch {}
+    }
+    ws.onerror = () => {}
+    ws.onclose = () => {
+      if (stopped) return
+      const delay = Math.min(1000 * Math.pow(2, retryCount), 30000)
+      retryCount++
+      setTimeout(connect, delay)
+    }
   }
-  ws.onerror = () => {}
-  return ws
+
+  connect()
+
+  return {
+    disconnect() {
+      stopped = true
+      if (ws) { ws.close(); ws = null }
+    }
+  }
 }

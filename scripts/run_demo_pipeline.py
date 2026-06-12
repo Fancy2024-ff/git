@@ -49,6 +49,61 @@ def step_fail(reason: str):
     p(f"  ✗ 失败 │ {reason}")
 
 
+# Pipeline report state (written incrementally)
+_pipeline_steps: list[dict] = []
+_pipeline_output_dir: Path = Path(".")
+_pipeline_job_id: str = ""
+
+
+def _flush_pipeline_report():
+    """Write current pipeline-report.json to disk."""
+    report = {
+        "job_id": _pipeline_job_id,
+        "steps": _pipeline_steps,
+        "finished_at": None,
+        "total_passed": None,
+    }
+    report_path = _pipeline_output_dir / "pipeline-report.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write(json.dumps(report, ensure_ascii=False, indent=2))
+
+
+def step_start(step_id: str, name: str, agent: str):
+    """Record step started and flush to disk."""
+    entry = {
+        "step": step_id,
+        "name": name,
+        "agent": agent,
+        "status": "running",
+        "started_at": datetime.now().isoformat(),
+        "finished_at": None,
+        "duration_ms": 0,
+        "artifact": None,
+        "error": None,
+    }
+    _pipeline_steps.append(entry)
+    _flush_pipeline_report()
+    # Also print structured event for WS parsing
+    p(json.dumps({"event": "step_started", "job_id": _pipeline_job_id, "step": step_id, "agent": agent, "message": name, "status": "running", "started_at": entry["started_at"]}))
+
+
+def step_end(artifact: str = None, error: str = None):
+    """Record step finished and flush to disk."""
+    if not _pipeline_steps:
+        return
+    entry = _pipeline_steps[-1]
+    entry["finished_at"] = datetime.now().isoformat()
+    started = datetime.fromisoformat(entry["started_at"])
+    entry["duration_ms"] = int((datetime.now() - started).total_seconds() * 1000)
+    entry["artifact"] = artifact
+    entry["error"] = error
+    entry["status"] = "failed" if error else "passed"
+    _flush_pipeline_report()
+    # Print structured event
+    p(json.dumps({"event": "step_finished", "job_id": _pipeline_job_id, "step": entry["step"], "agent": entry["agent"], "status": entry["status"], "artifact": artifact or "", "finished_at": entry["finished_at"], "duration_ms": entry["duration_ms"], "error": error or ""}))
+
+
 # ═══════════════════════════════════════════════════════════════
 # AGENTS
 # ═══════════════════════════════════════════════════════════════
@@ -1359,14 +1414,17 @@ def main():
     # === Step 1: Market Input ===
     t0 = time.time()
     step_header(1, "读取市场数据", "MarketInputAgent")
+    step_start("market_input", "读取市场数据", "MarketInputAgent")
     apps = market_input_agent(mode=mode)
     p(f"  已加载 {len(apps)} 个候选应用")
     for a in apps:
         p(f"    • {a['name_cn']} ({a['name']}) - {a['downloads']:,} 下载")
+    step_end(artifact="candidate.json")
     step_done("data/samples/apps.json", time.time() - t0)
 
     # === Step 2: Select best candidate ===
     step_header(2, "选择最优候选", "DemandAnalysisAgent")
+    step_start("demand_analysis", "选择最优候选", "DemandAnalysisAgent")
     t0 = time.time()
 
     # Score all apps and pick the best
@@ -1387,15 +1445,24 @@ def main():
         job_id = datetime.now().strftime("%Y%m%d") + "-" + str(uuid.uuid4())[:6]
     output_dir = OUTPUTS_DIR / job_id
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Initialize pipeline report globals
+    global _pipeline_steps, _pipeline_output_dir, _pipeline_job_id
+    _pipeline_steps = []
+    _pipeline_output_dir = output_dir
+    _pipeline_job_id = job_id
+
     p(f"  Job ID: {job_id}")
     p(f"  输出目录: {output_dir}")
 
     _write(output_dir / "candidate.json", json.dumps(best_app, ensure_ascii=False, indent=2))
     _write(output_dir / "analysis.json", json.dumps(best_analysis, ensure_ascii=False, indent=2))
+    step_end(artifact="analysis.json")
     step_done(f"data/outputs/{job_id}/analysis.json", time.time() - t0)
 
     # === Step 3: Gap Check ===
     step_header(3, "小程序覆盖检查", "GapCheckAgent")
+    step_start("gap_check", "覆盖检查", "GapCheckAgent")
     t0 = time.time()
     gap = gap_check_agent(best_app)
     p(f"  缺失平台: {gap['missing_platforms']}")
@@ -1403,20 +1470,24 @@ def main():
     p(f"  推荐平台: {gap['recommended_platforms']}")
     p(f"  机会等级: {gap['opportunity_level']}")
     _write(output_dir / "gap-check.json", json.dumps(gap, ensure_ascii=False, indent=2))
+    step_end(artifact="gap-check.json")
     step_done(f"data/outputs/{job_id}/gap-check.json", time.time() - t0)
 
     # === Step 4: Opportunity Score ===
     step_header(4, "机会评分", "OpportunityScoreAgent")
+    step_start("opportunity_score", "机会评分", "OpportunityScoreAgent")
     t0 = time.time()
     opportunity = opportunity_score_agent(best_app, best_analysis, gap)
     p(f"  综合评分: {opportunity['opportunity_score']}/100")
     p(f"  推荐动作: {opportunity['recommendation']}")
     p(f"  预计开发: {opportunity['estimated_dev_days']} 天")
     _write(output_dir / "opportunity-report.json", json.dumps(opportunity, ensure_ascii=False, indent=2))
+    step_end(artifact="opportunity-report.json")
     step_done(f"data/outputs/{job_id}/opportunity-report.json", time.time() - t0)
 
     # === Step 5: Generate PRD ===
     step_header(5, "生成 PRD", "PRDAgent")
+    step_start("prd_generation", "生成 PRD", "PRDAgent")
     t0 = time.time()
     prd_md, prd_json = prd_agent(best_app, opportunity)
     _write(output_dir / "prd.md", prd_md)
@@ -1424,10 +1495,12 @@ def main():
     p(f"  功能数: {len(prd_json['core_features'])}")
     p(f"  页面数: {len(prd_json['pages'])}")
     p(f"  技术栈: {prd_json['tech_stack']['framework']}")
+    step_end(artifact="prd.json")
     step_done(f"data/outputs/{job_id}/prd.json", time.time() - t0)
 
     # === Step 6: Generate Code ===
     step_header(6, "生成小程序代码", "CodegenAgent")
+    step_start("code_generation", "生成代码", "CodegenAgent")
     t0 = time.time()
     gen_dir = output_dir / "generated"
     gen_dir.mkdir(exist_ok=True)
@@ -1435,10 +1508,12 @@ def main():
     file_count = len(list(miniapp_dir.rglob("*")))
     p(f"  项目路径: {miniapp_dir}")
     p(f"  生成文件: {file_count} 个")
+    step_end(artifact="generated/miniapp/")
     step_done(f"data/outputs/{job_id}/generated/miniapp/", time.time() - t0)
 
     # === Step 7: Publish Materials ===
     step_header(7, "生成上架材料", "PublishMaterialsAgent")
+    step_start("publish_materials", "上架材料", "PublishMaterialsAgent")
     t0 = time.time()
     listing_md, listing_json = publish_materials_agent(best_app, prd_json)
     _write(output_dir / "listing-materials.md", listing_md)
@@ -1446,10 +1521,12 @@ def main():
     p(f"  小程序名: {listing_json['app_name_cn']}")
     p(f"  服务类目: {listing_json['category_suggestion']}")
     p(f"  关键词: {', '.join(listing_json['keywords'])}")
+    step_end(artifact="listing-materials.json")
     step_done(f"data/outputs/{job_id}/listing-materials.json", time.time() - t0)
 
     # === Step 8: Human Actions + Publish Package ===
     step_header(8, "生成提交审核包", "PublishPackageAgent")
+    step_start("submit_package", "提交审核包", "PublishPackageAgent")
     t0 = time.time()
     human_md = generate_human_actions(best_app, job_id, output_dir)
     _write(output_dir / "human-actions.md", human_md)
@@ -1575,6 +1652,7 @@ def main():
     p(f"  publish-package/ 已生成")
     p(f"  submission-readiness-report.json 已生成")
     p(f"  目标平台: {', '.join(opportunity['target_platforms'])}")
+    step_end(artifact="publish-package/")
     step_done(f"data/outputs/{job_id}/publish-package/", time.time() - t0)
 
     # === Step 9: Pipeline Report (with timing from step starts) ===
@@ -1601,6 +1679,7 @@ def main():
 
     # === Step 10: QA Check (runs last, includes npm install + build) ===
     step_header(10, "质量检查 + 构建验证", "QACheckAgent")
+    step_start("build_qa", "构建+质检", "QACheckAgent")
     t0 = time.time()
     p(f"  执行 npm install + npm run build:mp-weixin...")
     qa = qa_check_agent(miniapp_dir, output_dir)
@@ -1623,6 +1702,7 @@ def main():
         for issue in qa["issues"][:5]:
             p(f"    ▸ {issue}")
     _write(output_dir / "qa-report.json", json.dumps(qa, ensure_ascii=False, indent=2))
+    step_end(artifact="qa-report.json")
     step_done(f"data/outputs/{job_id}/qa-report.json", time.time() - t0)
 
     # Update pipeline-report with final QA status + timing
