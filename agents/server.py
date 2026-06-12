@@ -590,6 +590,100 @@ async def save_real_inputs(request):
     return {"saved": len(apps)}
 
 
+# === ROUTES: Platform Auth ===
+
+PLATFORM_AUTH_DIR = DATA_DIR / "platform-auth"
+
+
+@app.get("/api/platform-auth/status")
+def get_platform_auth_status():
+    """Get platform auth configuration status (never expose actual keys)."""
+    platforms_status = []
+
+    # Check each platform's auth config
+    platform_configs = {
+        "wechat": {"name": "微信小程序", "required": ["appid", "private_key_path"]},
+        "telegram": {"name": "Telegram Mini Apps", "required": ["bot_token", "webapp_url"]},
+        "discord": {"name": "Discord Activities", "required": ["application_id", "activity_url"]},
+    }
+
+    for plat_id, meta in platform_configs.items():
+        config_file = PLATFORM_AUTH_DIR / f"{plat_id}.json"
+        configured = False
+        can_upload = False
+        can_submit = False
+        missing = []
+
+        if config_file.exists():
+            try:
+                config = json.loads(config_file.read_text(encoding="utf-8-sig"))
+                missing = [f for f in meta["required"] if not config.get(f)]
+                configured = len(missing) == 0
+                can_upload = configured and config.get("upload_enabled", False)
+                can_submit = configured and config.get("submit_review_enabled", False)
+            except Exception:
+                missing = meta["required"]
+
+        else:
+            missing = meta["required"]
+
+        platforms_status.append({
+            "platform_id": plat_id,
+            "platform_name": meta["name"],
+            "configured": configured,
+            "can_upload": can_upload,
+            "can_submit_review": can_submit,
+            "can_release": False,
+            "missing_config": missing,
+            "one_time_setup": [
+                {"name": f, "done": f not in missing, "once": True}
+                for f in meta["required"]
+            ],
+            "agent_actions": [
+                {"name": "自动构建", "enabled": True},
+                {"name": "自动生成审核材料", "enabled": True},
+                {"name": "自动上传代码", "enabled": can_upload},
+            ],
+            "human_actions": [
+                {"name": "最终提交审核", "required": True, "reason": "平台需管理员确认"}
+            ],
+        })
+
+    return {"platforms": platforms_status}
+
+
+@app.post("/api/platforms/wechat/upload")
+def upload_wechat():
+    """Attempt to upload to WeChat via miniprogram-ci."""
+    config_file = PLATFORM_AUTH_DIR / "wechat.json"
+    if not config_file.exists():
+        return {"upload_passed": False, "reason": "wechat auth config missing: data/platform-auth/wechat.json"}
+
+    try:
+        config = json.loads(config_file.read_text(encoding="utf-8-sig"))
+    except Exception as e:
+        return {"upload_passed": False, "reason": f"config parse error: {e}"}
+
+    if not config.get("appid") or not config.get("private_key_path"):
+        return {"upload_passed": False, "reason": "appid or private_key_path not configured"}
+
+    if not config.get("upload_enabled"):
+        return {"upload_passed": False, "reason": "upload_enabled is false in config"}
+
+    # Check if miniprogram-ci is available
+    import shutil
+    if not shutil.which("npx"):
+        return {"upload_passed": False, "reason": "npx not available"}
+
+    # TODO: Actually call miniprogram-ci here when configured
+    return {
+        "upload_passed": False,
+        "reason": "miniprogram-ci upload not yet implemented (auth configured but CI integration pending)",
+        "config_valid": True,
+        "appid": config["appid"][:6] + "***",
+    }
+
+
 # === Run ===
 
 if __name__ == "__main__":

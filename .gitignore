@@ -17,6 +17,10 @@ dashboard/dist/
 # Environment
 .env
 
+# Platform auth (real keys, never commit)
+data/platform-auth/*.json
+!data/platform-auth/*.json.example
+
 # Data (generated at runtime)
 data/apps/
 data/prds/

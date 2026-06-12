@@ -39,16 +39,16 @@ function getAppName(): string {
             class="mode-btn"
             :class="{ 'mode-btn--active': mode === 'demo' }"
             @click="emit('update:mode', 'demo')"
-          >Demo</button>
+          >试运行</button>
           <button
             class="mode-btn"
             :class="{ 'mode-btn--active': mode === 'real' }"
             @click="emit('update:mode', 'real')"
-          >Real</button>
+          >生产运行</button>
         </div>
         <span class="status-dot" :class="running ? 'status-dot--active' : 'status-dot--idle'"></span>
         <button class="start-btn" :disabled="running" @click="emit('start')">
-          {{ running ? '运行中...' : '启动流水线' }}
+          {{ running ? '运行中...' : mode === 'demo' ? '启动试运行' : '启动生产运行' }}
         </button>
       </div>
     </div>

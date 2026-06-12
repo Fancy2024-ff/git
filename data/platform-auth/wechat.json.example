@@ -1,0 +1,13 @@
+{
+  "appid": "",
+  "private_key_path": "",
+  "project_path": "",
+  "version": "1.0.0",
+  "robot": 1,
+  "upload_enabled": false,
+  "submit_review_enabled": false,
+  "release_enabled": false,
+  "privacy_url": "",
+  "user_agreement_url": "",
+  "service_category": ""
+}

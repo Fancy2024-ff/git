@@ -127,47 +127,86 @@ def demand_analysis_agent(app: dict) -> dict:
 
 
 def gap_check_agent(app: dict) -> dict:
-    """覆盖检查：评估每个小程序平台的竞品覆盖情况。"""
+    """覆盖检查：从 platform-registry 动态获取 active 平台，评估覆盖情况。"""
     downloads = app.get("downloads", 0)
+    category = app.get("category", "").lower()
 
-    # 本地规则模拟覆盖判断（后续接真实搜索 API）
-    def _coverage_level(platform: str) -> str:
-        if platform == "wechat" and downloads > 5_000_000:
-            return "weak"  # 高下载 App 微信可能有低质竞品
-        if platform == "wechat" and downloads > 10_000_000:
+    # Load active platforms from registry
+    registry_file = DATA_DIR / "platforms" / "platform-registry.json"
+    active_platforms = []
+    research_platforms = []
+    if registry_file.exists():
+        reg_list = json.loads(registry_file.read_text(encoding="utf-8-sig"))
+        for p in reg_list:
+            if p["status"] == "active":
+                active_platforms.append(p)
+            elif p["status"] == "research_needed":
+                research_platforms.append(p)
+    else:
+        # Fallback if registry doesn't exist
+        active_platforms = [{"id": "wechat"}, {"id": "alipay"}, {"id": "douyin"}, {"id": "telegram"}]
+
+    # Coverage rule (local heuristic)
+    def _coverage_level(plat_id: str) -> str:
+        if plat_id == "wechat" and downloads > 5_000_000:
+            return "weak"
+        if plat_id == "wechat" and downloads > 10_000_000:
             return "strong"
         return "missing"
 
+    # Product type matching
+    def _fits_product(plat: dict) -> bool:
+        fit_types = [t.lower() for t in plat.get("fit_product_types", [])]
+        not_fit = [t.lower() for t in plat.get("not_fit_product_types", [])]
+        # Check if category matches fit types
+        if not fit_types:
+            return True  # No restriction
+        cat_map = {"productivity": "工具", "photography": "图片", "education": "教育", "utilities": "工具", "health & fitness": "本地生活"}
+        mapped = cat_map.get(category, category)
+        if any(mapped in t or t in mapped for t in not_fit):
+            return False
+        return True
+
     platforms_checked = []
     missing_platforms = []
-    for platform in ["wechat", "alipay", "douyin", "telegram"]:
-        level = _coverage_level(platform)
+    recommended = []
+
+    for plat in active_platforms:
+        plat_id = plat["id"]
+        level = _coverage_level(plat_id)
+        fits = _fits_product(plat)
+
         platforms_checked.append({
-            "platform": platform,
+            "platform": plat_id,
+            "name_cn": plat.get("name_cn", plat_id),
             "coverage_level": level,
+            "product_fit": fits,
             "competitors": [],
             "evidence": [],
-            "notes": "本地规则推断，待接入真实搜索验证" if level != "missing" else "",
+            "notes": "" if level == "missing" else "本地规则推断，待接入真实搜索",
         })
-        if level in ("missing", "weak"):
-            missing_platforms.append(platform)
 
-    # 计算 gap score (0-100)
-    gap_score = len([p for p in platforms_checked if p["coverage_level"] in ("missing", "weak")]) / len(platforms_checked) * 100
+        if level in ("missing", "weak") and fits:
+            missing_platforms.append(plat_id)
+            recommended.append(plat_id)
 
-    recommended = [p["platform"] for p in platforms_checked if p["coverage_level"] == "missing"]
-    if not recommended:
-        recommended = [p["platform"] for p in platforms_checked if p["coverage_level"] == "weak"]
+    # Gap score
+    gap_score = len(missing_platforms) / max(len(active_platforms), 1) * 100
 
     return {
         "app_name": app["name"],
         "platforms_checked": platforms_checked,
         "missing_platforms": missing_platforms,
+        "research_platforms": [p["id"] for p in research_platforms],
         "gap_score": round(gap_score, 1),
-        "gap_summary": f"{len(missing_platforms)} 个平台缺失或覆盖薄弱",
-        "recommended_platforms": recommended,
-        "opportunity_level": "高" if len(missing_platforms) >= 3 else "中" if len(missing_platforms) >= 2 else "低",
+        "gap_summary": f"{len(missing_platforms)} 个 active 平台缺失或覆盖薄弱（共检查 {len(active_platforms)} 个）",
+        "recommended_platforms": recommended[:5],  # Top 5
+        "opportunity_level": "高" if len(missing_platforms) >= 4 else "中" if len(missing_platforms) >= 2 else "低",
     }
+
+
+def opportunity_score_agent(app: dict, analysis: dict, gap: dict) -> dict:
+    """机会评分：5 维度综合评估。"""
 
 
 def opportunity_score_agent(app: dict, analysis: dict, gap: dict) -> dict:
@@ -1425,6 +1464,45 @@ def main():
             for p in opportunity["target_platforms"]
         ]
     }, ensure_ascii=False, indent=2))
+
+    # Per-platform submit packages
+    platform_guides = {
+        "wechat": "1. 登录 mp.weixin.qq.com\n2. 打开微信开发者工具导入 dist/build/mp-weixin\n3. 上传代码\n4. 填写资料\n5. 提交审核",
+        "alipay": "1. 登录 open.alipay.com\n2. 创建应用\n3. 上传代码\n4. 填写资料\n5. 提交审核",
+        "douyin": "1. 登录 developer.open-douyin.com\n2. 创建小程序\n3. 上传代码\n4. 提交审核",
+        "telegram": "1. 联系 @BotFather 创建 Bot\n2. 使用 /newapp 创建 Web App\n3. 部署前端到 HTTPS URL\n4. 配置 WebApp URL\n5. 无需审核，部署即上线",
+        "discord": "1. 创建 Discord Application\n2. 配置 Activity URL\n3. 集成 Discord SDK\n4. 提交审核",
+        "reddit": "1. 安装 devvit CLI\n2. 创建 Devvit App\n3. 本地开发调试\n4. 发布到社区",
+        "line": "1. 创建 LINE Channel\n2. 配置 LIFF App\n3. 部署 Web App\n4. 提交审核",
+    }
+    for plat in opportunity["target_platforms"]:
+        plat_dir = pkg_dir / plat
+        plat_dir.mkdir(exist_ok=True)
+        guide = platform_guides.get(plat, f"平台 {plat} 提交指南待补充")
+        _write(plat_dir / "submit-guide.md", f"# {plat} 提交指南\n\n{guide}")
+        _write(plat_dir / "required-materials.json", json.dumps({"platform": plat, "materials": listing_json.get("keywords", [])}, ensure_ascii=False, indent=2))
+        _write(plat_dir / "review-notes.md", f"# {plat} 审核备注\n\n{listing_json['review_notes']}")
+
+    # Generate submit-status.json
+    submit_status = {
+        "job_id": job_id,
+        "platforms": [
+            {
+                "platform_id": plat,
+                "configured": False,
+                "can_upload": False,
+                "upload_status": "not_started",
+                "review_status": "not_submitted",
+                "release_status": "not_released",
+                "last_action_by": "system",
+                "last_action_at": datetime.now().isoformat(),
+                "next_action_owner": "human",
+                "next_action": f"配置 {plat} 平台授权后自动上传",
+            }
+            for plat in opportunity["target_platforms"]
+        ],
+    }
+    _write(output_dir / "submit-status.json", json.dumps(submit_status, ensure_ascii=False, indent=2))
 
     # Generate submission-readiness-report (dynamic from platform registry)
     platform_readiness = []

@@ -1,0 +1,7 @@
+{
+  "bot_token": "",
+  "webapp_url": "",
+  "bot_username": "",
+  "deploy_target": "vercel",
+  "deploy_url": ""
+}

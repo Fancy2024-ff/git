@@ -27,6 +27,9 @@ export const api = {
   getRealInputs: () => get<{ apps: any[]; exists: boolean }>('/api/real-inputs/apps'),
   saveRealInputs: (apps: any[]) => post('/api/real-inputs/apps', apps),
   getPlatforms: () => get<{ platforms: any[]; total: number }>('/api/platforms'),
+  getPlatformAuth: () => get<{ platforms: any[] }>('/api/platform-auth/status'),
+  uploadWechat: () => post<{ upload_passed: boolean; reason: string }>('/api/platforms/wechat/upload'),
+  getPipelineStatus: () => get<{ running: boolean; log_lines: number; logs: string[] }>('/api/pipeline/status'),
 }
 
 export function connectPipelineWS(onMessage: (data: any) => void): WebSocket {

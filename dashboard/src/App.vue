@@ -32,7 +32,7 @@ const tabs = [
   { id: 'pipeline', label: '流水线' },
   { id: 'prd', label: 'PRD' },
   { id: 'listing', label: '上架材料' },
-  { id: 'actions', label: '人工操作' },
+  { id: 'actions', label: '提交中心' },
   { id: 'files', label: '产物文件' },
   { id: 'platforms', label: '平台库' },
   { id: 'logs', label: '日志' },
