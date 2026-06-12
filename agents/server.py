@@ -282,9 +282,13 @@ def get_job_artifact(job_id: str, file: str):
 
 # === ROUTES: Demo Start ===
 
+class DemoStartRequest(BaseModel):
+    mode: str = "demo"
+
+
 @app.post("/api/demo/start")
-async def start_demo():
-    """Start the demo pipeline and return job info when complete."""
+async def start_demo(req: DemoStartRequest = DemoStartRequest()):
+    """Start the pipeline and return job info when complete."""
     global pipeline_process, pipeline_logs
 
     if pipeline_process and pipeline_process.poll() is None:
@@ -294,7 +298,7 @@ async def start_demo():
     scripts_dir = Path(__file__).parent.parent / "scripts"
     python_exe = sys.executable
 
-    cmd = [python_exe, "-X", "utf8", str(scripts_dir / "run_demo_pipeline.py")]
+    cmd = [python_exe, "-X", "utf8", str(scripts_dir / "run_demo_pipeline.py"), "--mode", req.mode]
 
     pipeline_process = subprocess.Popen(
         cmd,
@@ -480,6 +484,35 @@ async def websocket_pipeline(ws: WebSocket):
             await ws.receive_text()  # Keep alive
     except WebSocketDisconnect:
         connected_clients.remove(ws)
+
+
+# === ROUTES: Real Inputs ===
+
+REAL_INPUTS_DIR = DATA_DIR / "real_inputs"
+
+
+@app.get("/api/real-inputs/apps")
+def get_real_inputs():
+    """Get imported real apps."""
+    apps_file = REAL_INPUTS_DIR / "apps.json"
+    if not apps_file.exists():
+        return {"apps": [], "exists": False}
+    apps = json.loads(apps_file.read_text(encoding="utf-8-sig"))
+    return {"apps": apps, "exists": True}
+
+
+@app.post("/api/real-inputs/apps")
+async def save_real_inputs(request):
+    """Save real app data."""
+    from starlette.requests import Request
+    body = await request.body()
+    data = json.loads(body)
+    apps = data if isinstance(data, list) else data.get("apps", [])
+    REAL_INPUTS_DIR.mkdir(parents=True, exist_ok=True)
+    (REAL_INPUTS_DIR / "apps.json").write_text(
+        json.dumps(apps, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return {"saved": len(apps)}
 
 
 # === Run ===

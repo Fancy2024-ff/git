@@ -1,0 +1,22 @@
+[
+  {
+    "name": "Example AI App",
+    "name_cn": "示例 AI 应用",
+    "source": "App Store",
+    "app_store_url": "https://apps.apple.com/app/id123456789",
+    "google_play_url": "",
+    "category": "Productivity",
+    "description": "An AI-powered productivity tool that helps users complete tasks faster.",
+    "description_cn": "AI 驱动的效率工具，帮助用户更快完成任务。",
+    "rating": 4.7,
+    "review_count": 12500,
+    "downloads": 3500000,
+    "monetization": "freemium",
+    "price": "Free with $9.99/month Pro",
+    "features": ["AI task completion", "Smart scheduling", "Natural language input"],
+    "features_cn": ["AI 任务完成", "智能排程", "自然语言输入"],
+    "keywords": ["AI", "productivity", "task management"],
+    "screenshots": [],
+    "regions": ["US", "CN", "JP"]
+  }
+]

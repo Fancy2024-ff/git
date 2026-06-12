@@ -26,6 +26,7 @@ if sys.platform == "win32":
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 SAMPLES_DIR = DATA_DIR / "samples"
+REAL_INPUTS_DIR = DATA_DIR / "real_inputs"
 OUTPUTS_DIR = DATA_DIR / "outputs"
 
 
@@ -52,96 +53,211 @@ def step_fail(reason: str):
 # AGENTS
 # ═══════════════════════════════════════════════════════════════
 
-def market_input_agent() -> list[dict]:
-    """读取样本数据，模拟市场扫描结果。"""
-    apps_file = SAMPLES_DIR / "apps.json"
-    if not apps_file.exists():
-        raise FileNotFoundError(f"样本数据不存在: {apps_file}")
+def market_input_agent(mode: str = "demo") -> list[dict]:
+    """读取 App 数据。demo 模式用样例，real 模式用真实导入数据。"""
+    if mode == "real":
+        apps_file = REAL_INPUTS_DIR / "apps.json"
+        if not apps_file.exists():
+            raise FileNotFoundError(
+                f"data/real_inputs/apps.json not found\n"
+                f"请先导入真实 App 数据，参考模板: data/real_inputs/apps.example.json"
+            )
+    else:
+        apps_file = SAMPLES_DIR / "apps.json"
+        if not apps_file.exists():
+            raise FileNotFoundError(f"样本数据不存在: {apps_file}")
     apps = json.loads(apps_file.read_text(encoding="utf-8-sig"))
     return apps
 
 
 def demand_analysis_agent(app: dict) -> dict:
-    """需求分析：基于 App 数据评估需求强度。"""
-    score_factors = {
-        "downloads_score": min(40, int(app["downloads"] / 200000)),
-        "rating_score": int(app["rating"] * 6),
-        "feature_richness": min(15, len(app["features"]) * 3),
-        "monetization_proof": 15 if app["monetization"] in ("freemium", "subscription") else 5,
-    }
-    total_score = sum(score_factors.values())
+    """需求分析：多维度评估需求强度。"""
+    downloads = app.get("downloads", 0)
+    rating = app.get("rating", 0)
+    review_count = app.get("review_count", 0)
+    monetization = app.get("monetization", "")
+    features = app.get("features", [])
+
+    # 下载量评分 (0-30)
+    if downloads > 5_000_000: dl_score = 30
+    elif downloads > 2_000_000: dl_score = 25
+    elif downloads > 500_000: dl_score = 18
+    elif downloads > 100_000: dl_score = 12
+    else: dl_score = 5
+
+    # 评分评分 (0-20)
+    rating_score = int(min(20, rating * 4.2))
+
+    # 评论数评分 (0-15)
+    if review_count > 10000: rev_score = 15
+    elif review_count > 3000: rev_score = 12
+    elif review_count > 500: rev_score = 8
+    else: rev_score = 4
+
+    # 变现验证 (0-15)
+    if monetization in ("subscription", "freemium"): mon_score = 15
+    elif monetization == "paid": mon_score = 12
+    else: mon_score = 5
+
+    # 功能丰富度 (0-10)
+    feat_score = min(10, len(features) * 2)
+
+    # 持续更新（本地无法判断，给默认分）
+    update_score = 10
+
+    demand_score = dl_score + rating_score + rev_score + mon_score + feat_score + update_score
 
     return {
         "app_name": app["name"],
         "app_name_cn": app["name_cn"],
-        "demand_score": min(100, total_score),
-        "score_breakdown": score_factors,
+        "demand_score": min(100, demand_score),
+        "score_breakdown": {
+            "downloads_score": dl_score,
+            "rating_score": rating_score,
+            "review_count_score": rev_score,
+            "monetization_score": mon_score,
+            "feature_richness_score": feat_score,
+            "update_frequency_score": update_score,
+        },
         "target_users": f"需要{app['name_cn'].replace('AI ', '')}功能的移动用户",
-        "pain_point": f"原生 App 需要下载安装，小程序可即用即走",
-        "market_validation": f"{app['downloads']:,} 次下载证明需求真实存在",
-        "conclusion": "需求已被市场验证" if total_score >= 60 else "需求待进一步验证",
+        "pain_point": "原生 App 需要下载安装，小程序可即用即走",
+        "market_validation": f"{downloads:,} 次下载、{rating} 分评分证明需求真实存在",
+        "conclusion": "需求已被市场验证" if demand_score >= 60 else "需求待进一步验证",
     }
 
 
 def gap_check_agent(app: dict) -> dict:
-    """覆盖检查：评估小程序平台是否已有同类产品。"""
-    # 本地规则模拟：下载量越高越可能已有竞品
-    has_wechat = app["downloads"] > 5000000
-    has_alipay = app["downloads"] > 8000000
-    has_douyin = app["downloads"] > 10000000
+    """覆盖检查：评估每个小程序平台的竞品覆盖情况。"""
+    downloads = app.get("downloads", 0)
 
-    missing = []
-    if not has_wechat:
-        missing.append("微信小程序")
-    if not has_alipay:
-        missing.append("支付宝小程序")
-    if not has_douyin:
-        missing.append("抖音小程序")
+    # 本地规则模拟覆盖判断（后续接真实搜索 API）
+    def _coverage_level(platform: str) -> str:
+        if platform == "wechat" and downloads > 5_000_000:
+            return "weak"  # 高下载 App 微信可能有低质竞品
+        if platform == "wechat" and downloads > 10_000_000:
+            return "strong"
+        return "missing"
 
-    coverage_rate = (3 - len(missing)) / 3
+    platforms_checked = []
+    missing_platforms = []
+    for platform in ["wechat", "alipay", "douyin", "telegram"]:
+        level = _coverage_level(platform)
+        platforms_checked.append({
+            "platform": platform,
+            "coverage_level": level,
+            "competitors": [],
+            "evidence": [],
+            "notes": "本地规则推断，待接入真实搜索验证" if level != "missing" else "",
+        })
+        if level in ("missing", "weak"):
+            missing_platforms.append(platform)
+
+    # 计算 gap score (0-100)
+    gap_score = len([p for p in platforms_checked if p["coverage_level"] in ("missing", "weak")]) / len(platforms_checked) * 100
+
+    recommended = [p["platform"] for p in platforms_checked if p["coverage_level"] == "missing"]
+    if not recommended:
+        recommended = [p["platform"] for p in platforms_checked if p["coverage_level"] == "weak"]
 
     return {
         "app_name": app["name"],
-        "platforms_checked": ["微信小程序", "支付宝小程序", "抖音小程序"],
-        "existing_coverage": {
-            "wechat": has_wechat,
-            "alipay": has_alipay,
-            "douyin": has_douyin,
-        },
-        "missing_platforms": missing,
-        "coverage_rate": coverage_rate,
-        "gap_exists": len(missing) > 0,
-        "opportunity_level": "高" if len(missing) >= 2 else "中" if len(missing) == 1 else "低",
+        "platforms_checked": platforms_checked,
+        "missing_platforms": missing_platforms,
+        "gap_score": round(gap_score, 1),
+        "gap_summary": f"{len(missing_platforms)} 个平台缺失或覆盖薄弱",
+        "recommended_platforms": recommended,
+        "opportunity_level": "高" if len(missing_platforms) >= 3 else "中" if len(missing_platforms) >= 2 else "低",
     }
 
 
 def opportunity_score_agent(app: dict, analysis: dict, gap: dict) -> dict:
-    """机会评分：综合需求强度和覆盖缺口。"""
-    demand_weight = 0.4
-    gap_weight = 0.35
-    feasibility_weight = 0.25
+    """机会评分：5 维度综合评估。"""
+    features = app.get("features", [])
+    features_cn = app.get("features_cn", [])
 
+    # 1. 需求强度 demand_score (from analysis)
     demand_score = analysis["demand_score"]
-    gap_score = len(gap["missing_platforms"]) / 3 * 100
-    # 简单可行性：功能数越少越容易做
-    feasibility_score = max(40, 100 - len(app["features"]) * 10)
 
-    total = (
-        demand_score * demand_weight
-        + gap_score * gap_weight
-        + feasibility_score * feasibility_weight
+    # 2. 小程序缺口 miniapp_gap_score (from gap check)
+    miniapp_gap_score = gap["gap_score"]
+
+    # 3. 小程序适配度 miniapp_fit_score
+    # 轻工具 +20, 短流程 +20, 适合分享 +20, 不依赖原生能力 +20, 文本为主 +20
+    fit_score = 0
+    complex_kw = ["camera", "ar", "video", "real-time", "3d", "hardware"]
+    is_complex = any(kw in " ".join(features).lower() for kw in complex_kw)
+    fit_score += 0 if is_complex else 25  # 不依赖复杂原生能力
+    fit_score += 25 if len(features) <= 5 else 15  # 短流程
+    fit_score += 25  # 轻工具（默认 AI 工具适合）
+    fit_score += 25 if app.get("category") in ("Productivity", "Education", "Utilities") else 15  # 适合分享
+    miniapp_fit_score = min(100, fit_score)
+
+    # 4. 实现难度 implementation_score (高分=容易实现)
+    page_count = min(6, len(features_cn) + 1)
+    needs_payment = app.get("monetization") in ("freemium", "subscription")
+    impl_score = 100
+    impl_score -= page_count * 8  # 页面越多越难
+    impl_score -= 15 if needs_payment else 0  # 需要支付
+    impl_score -= 20 if is_complex else 0
+    implementation_score = max(20, impl_score)
+
+    # 5. 风险 risk_score (高分=低风险=好)
+    risk_score = 85  # 默认低风险
+    risk_kw = ["health", "medical", "finance", "gambling", "dating", "children"]
+    if any(kw in app.get("category", "").lower() or kw in app.get("description", "").lower() for kw in risk_kw):
+        risk_score = 45
+    if "Health" in app.get("category", ""):
+        risk_score = 50
+
+    # 综合评分
+    weights = {"demand": 0.25, "gap": 0.25, "fit": 0.20, "impl": 0.15, "risk": 0.15}
+    total_score = round(
+        demand_score * weights["demand"]
+        + miniapp_gap_score * weights["gap"]
+        + miniapp_fit_score * weights["fit"]
+        + implementation_score * weights["impl"]
+        + risk_score * weights["risk"],
+        1,
     )
+
+    # 推荐
+    if total_score >= 70:
+        recommendation = "立即执行"
+        next_action = "进入 PRD 生成阶段"
+    elif total_score >= 50:
+        recommendation = "值得尝试"
+        next_action = "建议进一步人工确认后执行"
+    else:
+        recommendation = "暂缓"
+        next_action = "风险或难度过高，建议换目标"
+
+    reasons = []
+    if demand_score >= 70: reasons.append(f"需求强度高（{demand_score}）")
+    if miniapp_gap_score >= 70: reasons.append(f"小程序缺口大（{miniapp_gap_score}）")
+    if miniapp_fit_score >= 70: reasons.append(f"适配度高（{miniapp_fit_score}）")
+    if implementation_score >= 60: reasons.append(f"实现难度可控（{implementation_score}）")
+
+    reject_reasons = []
+    if risk_score < 60: reject_reasons.append(f"风险偏高（{risk_score}）")
+    if implementation_score < 40: reject_reasons.append(f"实现难度过大（{implementation_score}）")
+    if miniapp_fit_score < 50: reject_reasons.append(f"小程序适配度低（{miniapp_fit_score}）")
 
     return {
         "app_name": app["name"],
         "app_name_cn": app["name_cn"],
-        "opportunity_score": round(total, 1),
         "demand_score": demand_score,
-        "gap_score": round(gap_score, 1),
-        "feasibility_score": feasibility_score,
-        "recommendation": "立即执行" if total >= 70 else "值得尝试" if total >= 50 else "暂缓",
-        "target_platforms": gap["missing_platforms"],
-        "estimated_dev_days": max(3, len(app["features"]) * 2),
+        "miniapp_gap_score": miniapp_gap_score,
+        "miniapp_fit_score": miniapp_fit_score,
+        "implementation_score": implementation_score,
+        "risk_score": risk_score,
+        "total_score": total_score,
+        "opportunity_score": total_score,  # backward compat
+        "recommendation": recommendation,
+        "reasons": reasons,
+        "reject_reasons": reject_reasons,
+        "next_action": next_action,
+        "target_platforms": gap["recommended_platforms"],
+        "estimated_dev_days": max(3, page_count * 2),
     }
 
 
@@ -1167,15 +1283,21 @@ def _write(path: Path, content: str):
 # ═══════════════════════════════════════════════════════════════
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", choices=["demo", "real"], default="demo", help="demo: sample data, real: imported data")
+    args = parser.parse_args()
+    mode = args.mode
+
     p("=" * 60)
-    p("  Mini App Factory - Demo Pipeline")
-    p("  MVP 闭环演示：从市场数据到可上架小程序")
+    p(f"  Mini App Factory - Pipeline ({mode} mode)")
+    p(f"  从市场数据到可上架小程序")
     p("=" * 60)
 
     # === Step 1: Market Input ===
     t0 = time.time()
     step_header(1, "读取市场数据", "MarketInputAgent")
-    apps = market_input_agent()
+    apps = market_input_agent(mode=mode)
     p(f"  已加载 {len(apps)} 个候选应用")
     for a in apps:
         p(f"    • {a['name_cn']} ({a['name']}) - {a['downloads']:,} 下载")
@@ -1211,8 +1333,9 @@ def main():
     step_header(3, "小程序覆盖检查", "GapCheckAgent")
     t0 = time.time()
     gap = gap_check_agent(best_app)
-    p(f"  已覆盖平台: {[k for k, v in gap['existing_coverage'].items() if v]}")
     p(f"  缺失平台: {gap['missing_platforms']}")
+    p(f"  缺口评分: {gap['gap_score']}")
+    p(f"  推荐平台: {gap['recommended_platforms']}")
     p(f"  机会等级: {gap['opportunity_level']}")
     _write(output_dir / "gap-check.json", json.dumps(gap, ensure_ascii=False, indent=2))
     step_done(f"data/outputs/{job_id}/gap-check.json", time.time() - t0)
