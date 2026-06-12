@@ -472,16 +472,49 @@ def prd_agent(app: dict, opportunity: dict) -> tuple[str, dict]:
     return prd_md, prd_json
 
 
-def codegen_agent(app: dict, prd_json: dict, output_dir: Path) -> Path:
-    """代码生成 Agent：生成 uni-app 小程序项目骨架。"""
+def codegen_agent(app: dict, prd_json: dict, output_dir: Path) -> tuple[Path, dict]:
+    """代码生成 Agent：从 generator/templates 复制基础骨架，再定制化。"""
+    import shutil
+
     miniapp_dir = output_dir / "miniapp"
+    templates_dir = PROJECT_ROOT / "generator" / "src" / "templates"
+    base_template = templates_dir / "base"
+
+    # Track generation source
+    gen_source = {
+        "source": "generator_templates",
+        "template": "base",
+        "fallback_used": False,
+        "generated_files_count": 0,
+    }
+
+    # Primary: copy from generator/src/templates/base
+    if base_template.exists() and (base_template / "package.json").exists():
+        shutil.copytree(str(base_template), str(miniapp_dir), dirs_exist_ok=True)
+        gen_source["source"] = "generator_templates"
+        gen_source["fallback_used"] = False
+    else:
+        # Fallback: create dirs manually
+        gen_source["source"] = "inline_fallback"
+        gen_source["fallback_used"] = True
+
+    # Ensure all dirs exist
     src_dir = miniapp_dir / "src"
     pages_dir = src_dir / "pages"
     utils_dir = src_dir / "utils"
     docs_dir = miniapp_dir / "docs"
-
     for d in [pages_dir / "index", pages_dir / "form", pages_dir / "result", pages_dir / "profile", utils_dir, docs_dir]:
         d.mkdir(parents=True, exist_ok=True)
+
+    # Copy ai-tool template pages if available
+    ai_tool_template = templates_dir / "ai-tool"
+    if ai_tool_template.exists():
+        for sub in ai_tool_template.rglob("*"):
+            if sub.is_file():
+                dest = miniapp_dir / sub.relative_to(ai_tool_template)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(str(sub), str(dest))
+        gen_source["template"] = "base/ai-tool"
 
     app_name = app["name_cn"]
     app_name_en = app["name"].lower().replace(" ", "-")
@@ -932,7 +965,8 @@ page {
 4. 提交审核
 """)
 
-    return miniapp_dir
+    gen_source["generated_files_count"] = len([f for f in miniapp_dir.rglob("*") if f.is_file()])
+    return miniapp_dir, gen_source
 
 
 def qa_check_agent(miniapp_dir: Path, output_dir: Path) -> dict:
@@ -1411,6 +1445,20 @@ def main():
     p(f"  从市场数据到可上架小程序")
     p("=" * 60)
 
+    # Generate job_id early so all steps can reference it
+    global _pipeline_steps, _pipeline_output_dir, _pipeline_job_id
+    if args.job_id:
+        job_id = args.job_id
+    else:
+        job_id = datetime.now().strftime("%Y%m%d") + "-" + str(uuid.uuid4())[:6]
+    output_dir = OUTPUTS_DIR / job_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+    _pipeline_steps = []
+    _pipeline_output_dir = output_dir
+    _pipeline_job_id = job_id
+    p(f"  Job ID: {job_id}")
+    p(f"  输出目录: {output_dir}")
+
     # === Step 1: Market Input ===
     t0 = time.time()
     step_header(1, "读取市场数据", "MarketInputAgent")
@@ -1437,23 +1485,6 @@ def main():
     scored.sort(key=lambda x: x[1]["demand_score"], reverse=True)
     best_app, best_analysis = scored[0]
     p(f"\n  ★ 选中：{best_app['name_cn']}（评分 {best_analysis['demand_score']}）")
-
-    # Create job (use pre-assigned ID if provided by server)
-    if args.job_id:
-        job_id = args.job_id
-    else:
-        job_id = datetime.now().strftime("%Y%m%d") + "-" + str(uuid.uuid4())[:6]
-    output_dir = OUTPUTS_DIR / job_id
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Initialize pipeline report globals
-    global _pipeline_steps, _pipeline_output_dir, _pipeline_job_id
-    _pipeline_steps = []
-    _pipeline_output_dir = output_dir
-    _pipeline_job_id = job_id
-
-    p(f"  Job ID: {job_id}")
-    p(f"  输出目录: {output_dir}")
 
     _write(output_dir / "candidate.json", json.dumps(best_app, ensure_ascii=False, indent=2))
     _write(output_dir / "analysis.json", json.dumps(best_analysis, ensure_ascii=False, indent=2))
@@ -1504,10 +1535,12 @@ def main():
     t0 = time.time()
     gen_dir = output_dir / "generated"
     gen_dir.mkdir(exist_ok=True)
-    miniapp_dir = codegen_agent(best_app, prd_json, gen_dir)
-    file_count = len(list(miniapp_dir.rglob("*")))
+    miniapp_dir, gen_source = codegen_agent(best_app, prd_json, gen_dir)
+    _write(output_dir / "generator-source.json", json.dumps(gen_source, ensure_ascii=False, indent=2))
+    file_count = gen_source["generated_files_count"]
     p(f"  项目路径: {miniapp_dir}")
     p(f"  生成文件: {file_count} 个")
+    p(f"  模板来源: {gen_source['source']} ({gen_source['template']})")
     step_end(artifact="generated/miniapp/")
     step_done(f"data/outputs/{job_id}/generated/miniapp/", time.time() - t0)
 
@@ -1655,28 +1688,6 @@ def main():
     step_end(artifact="publish-package/")
     step_done(f"data/outputs/{job_id}/publish-package/", time.time() - t0)
 
-    # === Step 9: Pipeline Report (with timing from step starts) ===
-    pipeline_steps = [
-        {"step": "market_input", "name": "市场输入", "agent": "MarketInputAgent", "status": "passed", "artifact": "candidate.json"},
-        {"step": "demand_analysis", "name": "需求分析", "agent": "DemandAnalysisAgent", "status": "passed", "artifact": "analysis.json"},
-        {"step": "gap_check", "name": "覆盖检查", "agent": "GapCheckAgent", "status": "passed", "artifact": "gap-check.json"},
-        {"step": "opportunity_score", "name": "机会评分", "agent": "OpportunityScoreAgent", "status": "passed", "artifact": "opportunity-report.json"},
-        {"step": "prd_generation", "name": "生成 PRD", "agent": "PRDAgent", "status": "passed", "artifact": "prd.json"},
-        {"step": "code_generation", "name": "生成代码", "agent": "CodegenAgent", "status": "passed", "artifact": "generated/miniapp/"},
-        {"step": "publish_materials", "name": "上架材料", "agent": "PublishMaterialsAgent", "status": "passed", "artifact": "listing-materials.json"},
-        {"step": "submit_package", "name": "提交审核包", "agent": "PublishPackageAgent", "status": "passed", "artifact": "publish-package/"},
-        {"step": "build_qa", "name": "构建 + 质检", "agent": "QACheckAgent", "status": "pending", "artifact": "qa-report.json"},
-    ]
-    pipeline_report = {
-        "job_id": job_id,
-        "mode": mode,
-        "app_name": best_app["name_cn"],
-        "data_source": "demo_rule_based" if mode == "demo" else "real_import_manual",
-        "started_at": datetime.now().isoformat(),
-        "steps": pipeline_steps,
-    }
-    _write(output_dir / "pipeline-report.json", json.dumps(pipeline_report, ensure_ascii=False, indent=2))
-
     # === Step 10: QA Check (runs last, includes npm install + build) ===
     step_header(10, "质量检查 + 构建验证", "QACheckAgent")
     step_start("build_qa", "构建+质检", "QACheckAgent")
@@ -1704,12 +1715,6 @@ def main():
     _write(output_dir / "qa-report.json", json.dumps(qa, ensure_ascii=False, indent=2))
     step_end(artifact="qa-report.json")
     step_done(f"data/outputs/{job_id}/qa-report.json", time.time() - t0)
-
-    # Update pipeline-report with final QA status + timing
-    pipeline_report["steps"][-1]["status"] = "passed" if qa["passed"] else "failed"
-    pipeline_report["finished_at"] = datetime.now().isoformat()
-    pipeline_report["total_passed"] = qa["passed"]
-    _write(output_dir / "pipeline-report.json", json.dumps(pipeline_report, ensure_ascii=False, indent=2))
 
     # === SUMMARY ===
     p("\n" + "=" * 60)
