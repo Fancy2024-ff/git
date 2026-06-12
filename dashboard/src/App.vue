@@ -53,7 +53,9 @@ async function loadLatest() {
   try {
     currentJob.value = await api.getLatestJob()
   } catch (e: any) {
-    // No latest job is not an error (first run)
+    if (!e.message?.includes('404')) {
+      error.value = '无法连接后端: ' + e.message
+    }
   }
 }
 

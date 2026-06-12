@@ -44,10 +44,32 @@ function getIcon(name: string): string {
   if (name.includes('/') || !name.includes('.')) return '▤'
   return '▢'
 }
+
+function downloadZip() {
+  const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  const key = import.meta.env.VITE_API_TOKEN || ''
+  fetch(`${base}/api/jobs/${props.job.id}/download`, {
+    headers: key ? { 'X-API-Key': key } : {}
+  })
+    .then(res => {
+      if (!res.ok) throw new Error(`${res.status}`)
+      return res.blob()
+    })
+    .then(blob => {
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `${props.job.id}-miniapp.zip`
+      a.click()
+    })
+    .catch(() => alert('下载失败'))
+}
 </script>
 
 <template>
   <div class="files">
+    <div class="files-header">
+      <button @click="downloadZip" class="btn-download">📦 下载 ZIP</button>
+    </div>
     <div class="files-grid">
       <div class="files-col">
         <h3 class="col-title">Pipeline Artifacts</h3>
@@ -79,6 +101,22 @@ function getIcon(name: string): string {
 .files {
   padding: 0;
 }
+
+.files-header {
+  margin-bottom: 16px;
+}
+
+.btn-download {
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--color-blue);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+}
+.btn-download:hover { opacity: 0.9; }
 
 .files-grid {
   display: grid;

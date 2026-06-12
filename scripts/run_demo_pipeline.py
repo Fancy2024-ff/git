@@ -573,20 +573,41 @@ npm run build:mp-alipay
         "mp-toutiao": {"appid": ""},
     }, ensure_ascii=False, indent=2))
 
-    # pages.json (in src/ for uni-app CLI)
-    _write(src_dir / "pages.json", json.dumps({
-        "pages": [
-            {"path": "pages/index/index", "style": {"navigationBarTitleText": "首页"}},
-            {"path": "pages/form/form", "style": {"navigationBarTitleText": app["features_cn"][0]}},
-            {"path": "pages/result/result", "style": {"navigationBarTitleText": "结果"}},
-            {"path": "pages/profile/profile", "style": {"navigationBarTitleText": "我的"}},
-        ],
-        "globalStyle": {"navigationBarTextStyle": "black", "navigationBarBackgroundColor": "#ffffff", "backgroundColor": "#f5f5f5"},
-        "tabBar": {"color": "#999", "selectedColor": "#333", "list": [
+    # pages.json (in src/ for uni-app CLI) — MERGE with template if exists
+    pages_json_path = src_dir / "pages.json"
+    template_pages = []
+    template_global = {}
+    template_tabbar = {}
+    if pages_json_path.exists():
+        try:
+            existing = json.loads(pages_json_path.read_text(encoding="utf-8"))
+            template_pages = existing.get("pages", [])
+            template_global = existing.get("globalStyle", {})
+            template_tabbar = existing.get("tabBar", {})
+        except Exception:
+            pass
+
+    prd_pages = [
+        {"path": "pages/index/index", "style": {"navigationBarTitleText": "首页"}},
+        {"path": "pages/form/form", "style": {"navigationBarTitleText": app["features_cn"][0]}},
+        {"path": "pages/result/result", "style": {"navigationBarTitleText": "结果"}},
+        {"path": "pages/profile/profile", "style": {"navigationBarTitleText": "我的"}},
+    ]
+    existing_paths = {p["path"] for p in template_pages}
+    merged_pages = template_pages + [p for p in prd_pages if p["path"] not in existing_paths]
+
+    if not any("index" in p["path"] for p in merged_pages):
+        merged_pages.insert(0, {"path": "pages/index/index", "style": {"navigationBarTitleText": "首页"}})
+
+    merged_config = {
+        "pages": merged_pages,
+        "globalStyle": template_global if template_global.get("navigationBarTextStyle") else {"navigationBarTextStyle": "black", "navigationBarBackgroundColor": "#ffffff", "backgroundColor": "#f5f5f5"},
+        "tabBar": template_tabbar if template_tabbar.get("list") else {"color": "#999", "selectedColor": "#333", "list": [
             {"pagePath": "pages/index/index", "text": "首页"},
             {"pagePath": "pages/profile/profile", "text": "我的"},
         ]},
-    }, ensure_ascii=False, indent=2))
+    }
+    _write(pages_json_path, json.dumps(merged_config, ensure_ascii=False, indent=2))
 
     # Pages
     _write(pages_dir / "index" / "index.vue", f"""<template>

@@ -84,13 +84,50 @@ export async function generateProject(
     "utf-8"
   );
 
-  // Generate pages.json
-  const pagesConfig = generatePagesConfig(prd.core_features);
-  await fs.writeFile(
-    path.join(projectPath, "pages.json"),
-    JSON.stringify(pagesConfig, null, 2),
-    "utf-8"
-  );
+  // === MERGE pages.json (template + PRD) ===
+  const pagesJsonPath = path.join(projectPath, "pages.json");
+
+  // Read template's pages.json if it exists (from the fs.copy step above)
+  let templatePages: any[] = [];
+  let templateGlobalStyle: any = {};
+  let templateTabBar: any = {};
+  if (await fs.pathExists(pagesJsonPath)) {
+    const existing = await fs.readJSON(pagesJsonPath);
+    templatePages = existing.pages || [];
+    templateGlobalStyle = existing.globalStyle || {};
+    templateTabBar = existing.tabBar || {};
+  }
+
+  // Generate PRD feature pages
+  const prdPages = prd.core_features.map((f) => {
+    const pageName = f.name.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-");
+    return {
+      path: `pages/${pageName}/${pageName}`,
+      style: { navigationBarTitleText: f.name },
+    };
+  });
+
+  // Merge: template pages first, then PRD pages (skip duplicates)
+  const existingPaths = new Set(templatePages.map((p: any) => p.path));
+  const mergedPages = [
+    ...templatePages,
+    ...prdPages.filter(p => !existingPaths.has(p.path)),
+  ];
+
+  // Ensure index page exists
+  if (!mergedPages.some(p => p.path.includes("index"))) {
+    mergedPages.unshift({ path: "pages/index/index", style: { navigationBarTitleText: "首页" } });
+  }
+
+  const pagesConfig = {
+    pages: mergedPages,
+    globalStyle: templateGlobalStyle.navigationBarTextStyle
+      ? templateGlobalStyle
+      : { navigationBarTextStyle: "black", navigationBarBackgroundColor: "#ffffff", backgroundColor: "#f5f5f5" },
+    tabBar: templateTabBar.list?.length ? templateTabBar : undefined,
+  };
+
+  await fs.writeFile(pagesJsonPath, JSON.stringify(pagesConfig, null, 2), "utf-8");
 
   return {
     project_path: projectPath,
