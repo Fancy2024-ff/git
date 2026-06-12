@@ -2,17 +2,23 @@ import type { JobSummary, JobDetail } from '../types/job'
 
 const BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const WS_BASE = import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8000'
+const API_KEY = import.meta.env.VITE_API_TOKEN || ''
 
 async function get<T = any>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`)
+  const headers: Record<string, string> = {}
+  if (API_KEY) headers['X-API-Key'] = API_KEY
+  const res = await fetch(`${BASE}${path}`, { headers })
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   return res.json()
 }
 
 async function post<T = any>(path: string, body?: any): Promise<T> {
+  const headers: Record<string, string> = {}
+  if (body) headers['Content-Type'] = 'application/json'
+  if (API_KEY) headers['X-API-Key'] = API_KEY
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: body ? { 'Content-Type': 'application/json' } : {},
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   })
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)

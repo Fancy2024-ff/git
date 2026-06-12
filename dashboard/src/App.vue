@@ -44,13 +44,17 @@ async function loadJobs() {
   try {
     const res = await api.getJobs()
     jobs.value = res.jobs
-  } catch {}
+  } catch (e: any) {
+    error.value = '后端连接失败: ' + e.message
+  }
 }
 
 async function loadLatest() {
   try {
     currentJob.value = await api.getLatestJob()
-  } catch {}
+  } catch (e: any) {
+    // No latest job is not an error (first run)
+  }
 }
 
 async function selectJob(id: string) {
@@ -128,7 +132,10 @@ onMounted(async () => {
     />
 
     <main class="main" @click="menuOpen = false">
-      <div v-if="error" class="error-banner">{{ error }}</div>
+      <div v-if="error" class="error-banner">
+        {{ error }}
+        <button class="retry-btn" @click="error = ''; loadJobs(); loadLatest()">重试</button>
+      </div>
 
       <div v-if="currentJob" class="content">
         <HeroSummary :job="currentJob" />
@@ -183,6 +190,18 @@ onMounted(async () => {
   border-radius: var(--radius-sm);
   font-size: 13px;
   margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.retry-btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(196, 30, 22, 0.3);
+  background: transparent;
+  color: #c41e16;
+  cursor: pointer;
 }
 
 .content {

@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -30,13 +30,24 @@ PLATFORM_AUTH_DIR = DATA_DIR / "platform-auth"
 REAL_INPUTS_DIR = DATA_DIR / "real_inputs"
 
 # ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+DASHBOARD_API_KEY = os.environ.get("DASHBOARD_API_KEY", "")
+DASHBOARD_ORIGIN = os.environ.get("DASHBOARD_ORIGIN", "http://localhost:5173")
+
+async def verify_api_key(x_api_key: str = Header(default="")):
+    """Optional API key auth. Only enforced if DASHBOARD_API_KEY is set."""
+    if DASHBOARD_API_KEY and x_api_key != DASHBOARD_API_KEY:
+        raise HTTPException(401, "Invalid API key")
+
+# ---------------------------------------------------------------------------
 # App + CORS
 # ---------------------------------------------------------------------------
 app = FastAPI(title="MiniApp Factory API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[DASHBOARD_ORIGIN, "http://localhost:5173", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -45,6 +56,8 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
+import time as _time
+PIPELINE_TIMEOUT = int(os.environ.get("PIPELINE_TIMEOUT_SECONDS", "600"))
 pipeline_process: Optional[subprocess.Popen] = None
 pipeline_job_id: Optional[str] = None
 pipeline_logs: list[str] = []
@@ -97,7 +110,7 @@ class PipelineStartRequest(BaseModel):
 # SECTION: Pipeline
 # ---------------------------------------------------------------------------
 
-@app.post("/api/pipeline/start")
+@app.post("/api/pipeline/start", dependencies=[Depends(verify_api_key)])
 async def pipeline_start(req: PipelineStartRequest = PipelineStartRequest()):
     """Start pipeline in background, return immediately."""
     global pipeline_process, pipeline_job_id, pipeline_logs
@@ -145,17 +158,36 @@ async def pipeline_start(req: PipelineStartRequest = PipelineStartRequest()):
     return {"accepted": True, "job_id": job_id, "mode": req.mode}
 
 async def _stream_pipeline_output(job_id: str):
-    """Read pipeline stdout line by line, broadcast via WebSocket."""
+    """Read pipeline stdout line by line, broadcast via WebSocket. Kill on timeout."""
     global pipeline_process
 
     loop = asyncio.get_event_loop()
+    started_at = _time.time()
 
     while pipeline_process and pipeline_process.poll() is None:
+        # Timeout check
+        elapsed = _time.time() - started_at
+        if elapsed > PIPELINE_TIMEOUT:
+            pipeline_process.kill()
+            await _broadcast({"type": "pipeline_failed", "job_id": job_id, "error": f"Timeout ({PIPELINE_TIMEOUT}s)", "success": False}, job_id=job_id)
+            return
+
         line = await loop.run_in_executor(None, pipeline_process.stdout.readline)
         if not line:
             break
         line = line.rstrip()
         pipeline_logs.append(line)
+
+        # Try parsing structured event from pipeline
+        if line.startswith("{") and '"event"' in line:
+            try:
+                event = json.loads(line)
+                event["type"] = event.pop("event", "step_log")
+                await _broadcast(event, job_id=job_id)
+                continue
+            except Exception:
+                pass
+
         await _broadcast({"type": "step_log", "data": line, "job_id": job_id, "message": line}, job_id=job_id)
 
     # Pipeline finished
@@ -175,7 +207,7 @@ def pipeline_status():
     }
 
 
-@app.post("/api/pipeline/stop")
+@app.post("/api/pipeline/stop", dependencies=[Depends(verify_api_key)])
 def pipeline_stop():
     """Kill running pipeline."""
     global pipeline_process
@@ -394,7 +426,7 @@ def get_platform_auth_status():
     return {"platforms": platforms_status}
 
 
-@app.post("/api/platforms/wechat/upload")
+@app.post("/api/platforms/wechat/upload", dependencies=[Depends(verify_api_key)])
 def wechat_upload():
     """Attempt WeChat upload – fails gracefully if not configured."""
     config_file = PLATFORM_AUTH_DIR / "wechat.json"
@@ -437,7 +469,7 @@ def get_real_inputs():
     return {"apps": apps, "exists": True}
 
 
-@app.post("/api/real-inputs/apps")
+@app.post("/api/real-inputs/apps", dependencies=[Depends(verify_api_key)])
 async def save_real_inputs(request: Request):
     """Save real app data."""
     body = await request.body()
@@ -492,6 +524,38 @@ def get_overview():
         "pipeline_running": running,
         "current_job_id": pipeline_job_id if running else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# SECTION: Zip Download
+# ---------------------------------------------------------------------------
+
+@app.get("/api/jobs/{job_id}/download")
+def download_job(job_id: str):
+    """Download all job artifacts as a zip file."""
+    import zipfile
+    import tempfile
+    from fastapi.responses import FileResponse
+
+    job_dir = OUTPUTS_DIR / job_id
+    if not job_dir.exists():
+        raise HTTPException(404, "Job not found")
+
+    # Create zip in temp directory
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    tmp.close()
+
+    with zipfile.ZipFile(tmp.name, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for f in job_dir.rglob("*"):
+            if f.is_file() and "node_modules" not in str(f):
+                arcname = str(f.relative_to(job_dir))
+                zf.write(f, arcname)
+
+    return FileResponse(
+        tmp.name,
+        media_type="application/zip",
+        filename=f"miniapp-factory-{job_id}.zip",
+    )
 
 
 # ---------------------------------------------------------------------------

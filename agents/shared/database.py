@@ -3,12 +3,14 @@
 import json
 from pathlib import Path
 from datetime import datetime
+from filelock import FileLock
 
 from config.settings import DATA_DIR
 from shared.models import MiniAppProject, ProjectStatus
 
 
 DB_FILE = DATA_DIR / "pipeline_state.json"
+DB_LOCK = FileLock(str(DB_FILE) + ".lock", timeout=10)
 
 
 def _load_db() -> dict:
@@ -25,11 +27,12 @@ def _save_db(db: dict) -> None:
 
 
 def save_project(project: MiniAppProject) -> None:
-    """Save or update a project in the database."""
-    db = _load_db()
-    project.updated_at = datetime.now()
-    db["projects"][project.id] = json.loads(project.model_dump_json())
-    _save_db(db)
+    """Save or update a project in the database (file-locked)."""
+    with DB_LOCK:
+        db = _load_db()
+        project.updated_at = datetime.now()
+        db["projects"][project.id] = json.loads(project.model_dump_json())
+        _save_db(db)
 
 
 def get_project(project_id: str) -> MiniAppProject | None:

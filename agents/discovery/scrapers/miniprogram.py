@@ -69,17 +69,43 @@ def _search_wechat(app_name: str) -> bool:
 
 def _search_alipay(app_name: str) -> bool:
     """
-    Search Alipay mini-program.
-    Alipay has limited public search - using heuristic.
+    Search Alipay mini-program via Baidu index.
+    Uses Baidu search as a proxy since Alipay has no public search API.
     """
-    # TODO: Implement Alipay mini-program search
-    # For MVP, assume not found (more opportunities)
+    try:
+        response = httpx.get(
+            "https://www.baidu.com/s",
+            params={"wd": f'"{app_name}" 支付宝小程序'},
+            timeout=10,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+            follow_redirects=True,
+        )
+        if response.status_code == 200:
+            content = response.text.lower()
+            app_lower = app_name.lower()
+            return app_lower in content and ("支付宝小程序" in response.text or "mini.alipay" in content)
+    except Exception as e:
+        print(f"[Alipay Search] Failed for '{app_name}': {e}")
     return False
 
 
 def _search_douyin(app_name: str) -> bool:
     """
-    Search Douyin (TikTok CN) mini-program.
+    Search Douyin mini-program via Baidu index.
+    Uses Baidu search as a proxy since Douyin has no public search API.
     """
-    # TODO: Implement Douyin mini-program search
+    try:
+        response = httpx.get(
+            "https://www.baidu.com/s",
+            params={"wd": f'"{app_name}" 抖音小程序'},
+            timeout=10,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+            follow_redirects=True,
+        )
+        if response.status_code == 200:
+            content = response.text.lower()
+            app_lower = app_name.lower()
+            return app_lower in content and ("抖音小程序" in response.text or "douyin" in content)
+    except Exception as e:
+        print(f"[Douyin Search] Failed for '{app_name}': {e}")
     return False
