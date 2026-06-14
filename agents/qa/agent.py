@@ -87,10 +87,10 @@ def run_qa(project: MiniAppProject) -> QAResult:
 
 def _check_structure(project_path: Path, result: QAResult) -> None:
     """Verify project has all required files and valid configs."""
-    # Required files
+    # Required files (uni-app CLI places configs under src/)
     required = {
-        "manifest.json": "uni-app manifest configuration",
-        "pages.json": "pages routing configuration",
+        "src/manifest.json": "uni-app manifest configuration",
+        "src/pages.json": "pages routing configuration",
     }
 
     for filename, desc in required.items():
@@ -122,7 +122,7 @@ def _check_structure(project_path: Path, result: QAResult) -> None:
                     )
 
     # Check pages.json references match actual pages
-    pages_json_path = project_path / "pages.json"
+    pages_json_path = project_path / "src" / "pages.json"
     if pages_json_path.exists():
         try:
             pages_config = json.loads(pages_json_path.read_text(encoding="utf-8"))
@@ -200,7 +200,7 @@ def _check_platform_compliance(
 
     # WeChat-specific checks
     if platform == MiniProgramPlatform.WECHAT:
-        manifest_path = project_path / "manifest.json"
+        manifest_path = project_path / "src" / "manifest.json"
         if manifest_path.exists():
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             wx_config = manifest.get("mp-weixin", {})
@@ -209,7 +209,7 @@ def _check_platform_compliance(
 
     # Alipay-specific checks
     if platform == MiniProgramPlatform.ALIPAY:
-        manifest_path = project_path / "manifest.json"
+        manifest_path = project_path / "src" / "manifest.json"
         if manifest_path.exists():
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             if not manifest.get("mp-alipay", {}).get("appid"):

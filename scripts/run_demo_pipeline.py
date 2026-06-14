@@ -53,15 +53,27 @@ def step_fail(reason: str):
 _pipeline_steps: list[dict] = []
 _pipeline_output_dir: Path = Path(".")
 _pipeline_job_id: str = ""
+_report_meta: dict = {
+    "started_at": None,
+    "finished_at": None,
+    "total_passed": None,
+    "error": None,
+    "mode": "demo",
+    "data_source": "demo_rule_based",
+}
 
 
 def _flush_pipeline_report():
-    """Write current pipeline-report.json to disk."""
+    """Write current pipeline-report.json to disk (report-level + per-step state)."""
     report = {
         "job_id": _pipeline_job_id,
+        "mode": _report_meta["mode"],
+        "data_source": _report_meta["data_source"],
+        "started_at": _report_meta["started_at"],
+        "finished_at": _report_meta["finished_at"],
+        "total_passed": _report_meta["total_passed"],
+        "error": _report_meta["error"],
         "steps": _pipeline_steps,
-        "finished_at": None,
-        "total_passed": None,
     }
     report_path = _pipeline_output_dir / "pipeline-report.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -69,8 +81,24 @@ def _flush_pipeline_report():
         f.write(json.dumps(report, ensure_ascii=False, indent=2))
 
 
+def finalize_pipeline_report(total_passed=None, error: str = None):
+    """Mark the report finished. Always leaves a terminal state (never 'running')."""
+    _report_meta["finished_at"] = datetime.now().isoformat()
+    _report_meta["total_passed"] = total_passed
+    _report_meta["error"] = error
+    # Any step still marked running at finalize time is forced to failed.
+    for entry in _pipeline_steps:
+        if entry.get("status") == "running":
+            entry["status"] = "failed"
+            entry["finished_at"] = entry["finished_at"] or datetime.now().isoformat()
+            entry["error"] = entry.get("error") or (error or "pipeline aborted")
+    _flush_pipeline_report()
+
+
 def step_start(step_id: str, name: str, agent: str):
     """Record step started and flush to disk."""
+    if _report_meta["started_at"] is None:
+        _report_meta["started_at"] = datetime.now().isoformat()
     entry = {
         "step": step_id,
         "name": name,
@@ -88,8 +116,9 @@ def step_start(step_id: str, name: str, agent: str):
     p(json.dumps({"event": "step_started", "job_id": _pipeline_job_id, "step": step_id, "agent": agent, "message": name, "status": "running", "started_at": entry["started_at"]}))
 
 
-def step_end(artifact: str = None, error: str = None):
-    """Record step finished and flush to disk."""
+def step_end(artifact: str = None, error: str = None, error_code: str = None,
+             user_message: str = None, developer_message: str = None):
+    """Record step finished and flush to disk. Failure carries structured error info."""
     if not _pipeline_steps:
         return
     entry = _pipeline_steps[-1]
@@ -97,16 +126,61 @@ def step_end(artifact: str = None, error: str = None):
     started = datetime.fromisoformat(entry["started_at"])
     entry["duration_ms"] = int((datetime.now() - started).total_seconds() * 1000)
     entry["artifact"] = artifact
-    entry["error"] = error
-    entry["status"] = "failed" if error else "passed"
+    is_failed = bool(error or error_code)
+    entry["status"] = "failed" if is_failed else "passed"
+    if is_failed:
+        entry["error"] = error or user_message or "步骤执行失败"
+        entry["error_code"] = error_code or "step_error"
+        entry["user_message"] = user_message or error or "该步骤执行失败"
+        entry["developer_message"] = developer_message or error or ""
+    else:
+        entry["error"] = None
     _flush_pipeline_report()
     # Print structured event
-    p(json.dumps({"event": "step_finished", "job_id": _pipeline_job_id, "step": entry["step"], "agent": entry["agent"], "status": entry["status"], "artifact": artifact or "", "finished_at": entry["finished_at"], "duration_ms": entry["duration_ms"], "error": error or ""}))
+    evt = {
+        "event": "step_finished", "job_id": _pipeline_job_id, "step": entry["step"],
+        "agent": entry["agent"], "status": entry["status"], "artifact": artifact or "",
+        "finished_at": entry["finished_at"], "duration_ms": entry["duration_ms"],
+        "error": entry.get("error") or "",
+    }
+    if is_failed:
+        evt["error_code"] = entry.get("error_code", "step_error")
+        evt["user_message"] = entry.get("user_message", "")
+        evt["developer_message"] = entry.get("developer_message", "")
+    p(json.dumps(evt))
 
 
 # ═══════════════════════════════════════════════════════════════
 # AGENTS
 # ═══════════════════════════════════════════════════════════════
+
+def _normalize_app(app: dict) -> dict:
+    """Fill defaultable fields so downstream steps never hit a KeyError.
+
+    Mirrors the backend RealAppInput normalization: name_cn<-name,
+    description_cn<-description, features_cn<-features, numeric defaults, and a
+    guaranteed non-empty features_cn (so `features_cn[0]` is always safe).
+    """
+    app = dict(app or {})
+    app["name"] = app.get("name", "") or "Unnamed App"
+    app["name_cn"] = app.get("name_cn") or app["name"]
+    app["category"] = app.get("category", "") or "Utilities"
+    app["description"] = app.get("description") or app.get("description_cn") or ""
+    app["description_cn"] = app.get("description_cn") or app.get("description") or ""
+    features = app.get("features") or app.get("features_cn") or []
+    features_cn = app.get("features_cn") or app.get("features") or []
+    if not features_cn:
+        features_cn = ["核心功能"]
+    if not features:
+        features = features_cn
+    app["features"] = features
+    app["features_cn"] = features_cn
+    app["downloads"] = app.get("downloads", 0) or 0
+    app["rating"] = app.get("rating", 0) or 0
+    app["review_count"] = app.get("review_count", 0) or 0
+    app["monetization"] = app.get("monetization") or "unknown"
+    return app
+
 
 def market_input_agent(mode: str = "demo") -> list[dict]:
     """读取 App 数据。demo 模式用样例，real 模式用真实导入数据。"""
@@ -122,7 +196,9 @@ def market_input_agent(mode: str = "demo") -> list[dict]:
         if not apps_file.exists():
             raise FileNotFoundError(f"样本数据不存在: {apps_file}")
     apps = json.loads(apps_file.read_text(encoding="utf-8-sig"))
-    return apps
+    if not isinstance(apps, list) or not apps:
+        raise ValueError(f"{apps_file} 必须是非空的 JSON 数组")
+    return [_normalize_app(a) for a in apps]
 
 
 def demand_analysis_agent(app: dict) -> dict:
@@ -201,12 +277,13 @@ def gap_check_agent(app: dict) -> dict:
         # Fallback if registry doesn't exist
         active_platforms = [{"id": "wechat"}, {"id": "alipay"}, {"id": "douyin"}, {"id": "telegram"}]
 
-    # Coverage rule (local heuristic)
+    # Coverage rule (local heuristic). Order matters: check the higher
+    # threshold first so the 'strong' branch is reachable.
     def _coverage_level(plat_id: str) -> str:
-        if plat_id == "wechat" and downloads > 5_000_000:
-            return "weak"
         if plat_id == "wechat" and downloads > 10_000_000:
             return "strong"
+        if plat_id == "wechat" and downloads > 5_000_000:
+            return "weak"
         return "missing"
 
     # Product type matching
@@ -523,15 +600,15 @@ def codegen_agent(app: dict, prd_json: dict, output_dir: Path) -> tuple[Path, di
         "scripts": {"dev:mp-weixin": "uni -p mp-weixin", "build:mp-weixin": "uni build -p mp-weixin", "build:mp-alipay": "uni build -p mp-alipay"},
         "dependencies": {"vue": "^3.5.13", "pinia": "^2.1.7"},
         "devDependencies": {
-            "@dcloudio/uni-app": "3.0.0-alpha-5010320260611001",
-            "@dcloudio/uni-components": "3.0.0-alpha-5010320260611001",
-            "@dcloudio/uni-h5": "3.0.0-alpha-5010320260611001",
-            "@dcloudio/uni-mp-weixin": "3.0.0-alpha-5010320260611001",
-            "@dcloudio/uni-mp-alipay": "3.0.0-alpha-5010320260611001",
-            "@dcloudio/uni-mp-toutiao": "3.0.0-alpha-5010320260611001",
-            "@dcloudio/vite-plugin-uni": "3.0.0-alpha-5010320260611001",
+            "@dcloudio/uni-app": "3.0.0-5000720260410001",
+            "@dcloudio/uni-components": "3.0.0-5000720260410001",
+            "@dcloudio/uni-h5": "3.0.0-5000720260410001",
+            "@dcloudio/uni-mp-weixin": "3.0.0-5000720260410001",
+            "@dcloudio/uni-mp-alipay": "3.0.0-5000720260410001",
+            "@dcloudio/uni-mp-toutiao": "3.0.0-5000720260410001",
+            "@dcloudio/vite-plugin-uni": "3.0.0-5000720260410001",
             "typescript": "^5.4.0",
-            "vite": "5.2.8",
+            "vite": "^5.2.8",
         }
     }, ensure_ascii=False, indent=2))
 
@@ -1109,6 +1186,8 @@ def qa_check_agent(miniapp_dir: Path, output_dir: Path) -> dict:
     install_error = ""
 
     npm_path = shutil.which("npm")
+    install_timeout = int(os.environ.get("QA_INSTALL_TIMEOUT", "180"))
+    build_timeout = int(os.environ.get("QA_BUILD_TIMEOUT", "180"))
     if not npm_path:
         issues.append("npm 不可用，无法执行 install 和 build")
         install_error = "npm not found in PATH"
@@ -1123,7 +1202,7 @@ def qa_check_agent(miniapp_dir: Path, output_dir: Path) -> dict:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=120,
+                timeout=install_timeout,
             )
             install_duration_ms = int((time.time() - t_start) * 1000)
             if result.returncode == 0:
@@ -1133,8 +1212,8 @@ def qa_check_agent(miniapp_dir: Path, output_dir: Path) -> dict:
                 install_error = (result.stderr or result.stdout)[-500:]
                 issues.append(f"npm install 失败 (exit {result.returncode}): {install_error[:200]}")
         except sp.TimeoutExpired:
-            install_duration_ms = 120000
-            install_error = "npm install timed out (120s)"
+            install_duration_ms = install_timeout * 1000
+            install_error = f"npm install timed out ({install_timeout}s)"
             issues.append(install_error)
         except Exception as e:
             install_error = str(e)
@@ -1151,6 +1230,7 @@ def qa_check_agent(miniapp_dir: Path, output_dir: Path) -> dict:
 
     if install_passed and npm_path:
         build_verified = True
+        dist_dir = miniapp_dir / "dist" / "build" / "mp-weixin"
         t_start = time.time()
         try:
             result = sp.run(
@@ -1160,21 +1240,27 @@ def qa_check_agent(miniapp_dir: Path, output_dir: Path) -> dict:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=120,
+                timeout=build_timeout,
             )
             build_duration_ms = int((time.time() - t_start) * 1000)
             output_text = result.stdout + result.stderr
-            if result.returncode == 0 and "Build complete" in output_text:
+            build_output_summary = output_text[-500:]
+            # Success is determined by exit code + real build artifacts,
+            # NOT by matching log text like "Build complete".
+            key_files = [dist_dir / "app.json", dist_dir / "app.js", dist_dir / "app.wxss"]
+            has_key_files = any(f.exists() for f in key_files) or (
+                dist_dir.exists() and any(dist_dir.iterdir())
+            )
+            if result.returncode == 0 and dist_dir.exists() and has_key_files:
                 build_passed = True
-                build_output_summary = "DONE Build complete."
-                dist_path = str(miniapp_dir / "dist" / "build" / "mp-weixin")
+                dist_path = str(dist_dir)
             else:
                 build_passed = False
                 build_error_summary = output_text[-500:]
                 issues.append(f"build 失败 (exit {result.returncode}): {build_error_summary[:200]}")
         except sp.TimeoutExpired:
-            build_duration_ms = 120000
-            build_error_summary = "npm run build:mp-weixin timed out (120s)"
+            build_duration_ms = build_timeout * 1000
+            build_error_summary = f"npm run build:mp-weixin timed out ({build_timeout}s)"
             issues.append(build_error_summary)
         except Exception as e:
             build_error_summary = str(e)
@@ -1436,6 +1522,177 @@ def generate_human_actions(app: dict, job_id: str, output_dir: Path) -> str:
 """
 
 
+def _platform_auth_status(plat: str) -> tuple[bool, list[str]]:
+    """Return (configured, missing_fields) by reading data/platform-auth/<plat>.json."""
+    required = {
+        "wechat": ["appid", "private_key_path"],
+        "alipay": ["appid"],
+        "douyin": ["appid"],
+    }.get(plat, ["appid"])
+    cf = DATA_DIR / "platform-auth" / f"{plat}.json"
+    if not cf.exists():
+        return False, required[:]
+    try:
+        cfg = json.loads(cf.read_text(encoding="utf-8-sig"))
+    except Exception:
+        return False, required[:]
+    missing = [f for f in required if not cfg.get(f)]
+    return (len(missing) == 0), missing
+
+
+def build_submission_readiness(best_app: dict, opportunity: dict, qa: dict,
+                               output_dir: Path, mode: str) -> dict:
+    """Honest answer to: can we submit for review TODAY?
+
+    ready_to_submit is True only when there are zero blocking issues — which
+    means: QA/build passed, dist exists, platform auth (AppID) configured,
+    screenshots prepared, and real-device testing done.
+    """
+    qa_passed = bool(qa.get("passed"))
+    dist_exists = bool(qa.get("checks", {}).get("dist_exists"))
+
+    registry_file = DATA_DIR / "platforms" / "platform-registry.json"
+    registry = {}
+    if registry_file.exists():
+        try:
+            registry = {p["id"]: p for p in json.loads(registry_file.read_text(encoding="utf-8-sig"))}
+        except Exception:
+            registry = {}
+
+    platform_readiness = []
+    rejected_platforms = []
+    any_configured = False
+
+    for plat in opportunity["target_platforms"]:
+        reg = registry.get(plat, {})
+        status = reg.get("status", "unknown")
+        if status in ("not_supported", "research_needed"):
+            rejected_platforms.append({
+                "platform": plat,
+                "reason": reg.get("notes", "平台不支持") if status == "not_supported" else "待调研，暂不可提交",
+            })
+            continue
+
+        configured, missing_fields = _platform_auth_status(plat)
+        can_upload = configured and reg.get("automation_level", "manual") != "manual"
+        any_configured = any_configured or configured
+
+        plat_blocking = []
+        if not configured:
+            plat_blocking.append(f"未配置 {plat} 平台授权（缺: {', '.join(missing_fields) or 'AppID'}）")
+        if not qa_passed:
+            plat_blocking.append("QA/构建未通过")
+        if not dist_exists:
+            plat_blocking.append("构建产物缺失")
+
+        platform_readiness.append({
+            "platform": plat,
+            "name_cn": reg.get("name_cn", plat),
+            "name_en": reg.get("name_en", plat),
+            "ready": status == "active" and configured and qa_passed and dist_exists,
+            "configured": configured,
+            "can_upload": can_upload,
+            "missing_fields": missing_fields,
+            "next_action": (
+                "上传代码并提交审核" if (configured and qa_passed and dist_exists)
+                else f"先解决: {'; '.join(plat_blocking)}"
+            ),
+            "submit_url": reg.get("submit_url", reg.get("developer_url", "")),
+            "upload_path": str(output_dir / "generated" / "miniapp" / (reg.get("upload_target", "") or "dist/build/mp-weixin")),
+            "automation_level": reg.get("automation_level", "manual"),
+        })
+
+    # Global blocking / warning issues
+    blocking_issues = []
+    if not qa_passed:
+        blocking_issues.append("QA 未通过或构建失败，不能提交审核")
+    if not dist_exists:
+        blocking_issues.append("构建产物 dist/build/mp-weixin 缺失")
+    if not any_configured:
+        blocking_issues.append("尚未配置任何平台授权（缺 AppID/密钥）")
+    # These are always required for a real submission and never auto-produced:
+    blocking_issues.append("缺少真机测试截图，需人工准备")
+    blocking_issues.append("未在目标平台真机测试")
+
+    warning_issues = [
+        "生成代码为 MVP 模板，建议人工 review 业务逻辑",
+        "AI 处理结果为占位，需接入真实后端 API",
+    ]
+
+    human_actions = [
+        "在对应平台后台创建小程序并获取 AppID",
+        "将 AppID/密钥写入 data/platform-auth/<platform>.json",
+        "用开发者工具导入 dist/build/mp-weixin 并真机预览",
+        "准备 4-5 张截图（参考 listing-materials.md）",
+        "提交审核并记录结果",
+    ]
+
+    return {
+        "job_id": _pipeline_job_id,
+        "app_name": best_app["name_cn"],
+        "ready_to_submit": len(blocking_issues) == 0,
+        # Back-compat alias for older dashboards; same value as ready_to_submit.
+        "is_ready_to_submit": len(blocking_issues) == 0,
+        "blocking_issues": blocking_issues,
+        "warning_issues": warning_issues,
+        "human_actions": human_actions,
+        "qa_passed": qa_passed,
+        "build_dist_exists": dist_exists,
+        "target_platforms": [p["platform"] for p in platform_readiness],
+        "rejected_platforms": rejected_platforms,
+        "platform_readiness": platform_readiness,
+        "next_action": (
+            "可以提交审核" if len(blocking_issues) == 0
+            else "当前不能提交审核，请先解决上方 blocking_issues"
+        ),
+        "data_source": "demo_rule_based" if mode == "demo" else "real_import_manual",
+    }
+
+
+def build_artifact_manifest(output_dir: Path, qa: dict, readiness: dict) -> dict:
+    """Describe each artifact with purpose, status and next action for the UI."""
+    qa_passed = bool(qa.get("passed"))
+    dist_exists = bool(qa.get("checks", {}).get("dist_exists"))
+    ready = bool(readiness.get("ready_to_submit"))
+
+    miniapp_status = "ready" if (qa_passed and dist_exists) else "blocked"
+    pkg_status = "ready" if ready else "blocked"
+
+    items = [
+        {"path": "candidate.json", "title": "候选 App", "purpose": "选中的候选应用信息",
+         "status": "ready", "affects_submission": False, "next_action": "无"},
+        {"path": "analysis.json", "title": "需求分析", "purpose": "需求强度评分",
+         "status": "ready", "affects_submission": False, "next_action": "无"},
+        {"path": "gap-check.json", "title": "覆盖检查", "purpose": "小程序平台覆盖缺口",
+         "status": "ready", "affects_submission": False, "next_action": "无"},
+        {"path": "opportunity-report.json", "title": "机会评分", "purpose": "综合机会评分",
+         "status": "ready", "affects_submission": False, "next_action": "无"},
+        {"path": "prd.md", "title": "PRD（可读）", "purpose": "产品需求文档",
+         "status": "needs_review", "affects_submission": True, "next_action": "人工确认产品方案"},
+        {"path": "prd.json", "title": "PRD（结构化）", "purpose": "结构化 PRD",
+         "status": "ready", "affects_submission": False, "next_action": "无"},
+        {"path": "generated/miniapp", "title": "小程序项目", "purpose": "生成的 uni-app 项目",
+         "status": miniapp_status, "affects_submission": True,
+         "next_action": "无" if miniapp_status == "ready" else "修复 QA/构建问题"},
+        {"path": "qa-report.json", "title": "QA 报告", "purpose": "质量检查 + 构建验证",
+         "status": "ready" if qa_passed else "needs_review", "affects_submission": True,
+         "next_action": "无" if qa_passed else "查看 issues 并修复"},
+        {"path": "listing-materials.md", "title": "上架材料（可读）", "purpose": "上架文案",
+         "status": "needs_review", "affects_submission": True, "next_action": "人工 review 文案"},
+        {"path": "listing-materials.json", "title": "上架材料（结构化）", "purpose": "结构化上架材料",
+         "status": "ready", "affects_submission": False, "next_action": "无"},
+        {"path": "human-actions.md", "title": "人工操作指南", "purpose": "上架步骤说明",
+         "status": "ready", "affects_submission": False, "next_action": "按指南操作"},
+        {"path": "submission-readiness-report.json", "title": "提交就绪报告",
+         "purpose": "是否可提交审核的真实判断",
+         "status": "ready", "affects_submission": True, "next_action": "查看 blocking_issues"},
+        {"path": "publish-package", "title": "提交审核包", "purpose": "各平台提交材料",
+         "status": pkg_status, "affects_submission": True,
+         "next_action": "无" if ready else "解决提交阻塞项后再使用"},
+    ]
+    return {"job_id": _pipeline_job_id, "items": items}
+
+
 def _write(path: Path, content: str):
     path.parent.mkdir(parents=True, exist_ok=True)
     # Use BOM only for .md files (Windows Notepad compatibility)
@@ -1473,9 +1730,47 @@ def main():
     _pipeline_steps = []
     _pipeline_output_dir = output_dir
     _pipeline_job_id = job_id
+    _report_meta["mode"] = mode
+    _report_meta["data_source"] = "demo_rule_based" if mode == "demo" else "real_import_manual"
+    _report_meta["started_at"] = None
+    _report_meta["finished_at"] = None
+    _report_meta["total_passed"] = None
+    _report_meta["error"] = None
     p(f"  Job ID: {job_id}")
     p(f"  输出目录: {output_dir}")
 
+    try:
+        qa = _run_pipeline_steps(mode, job_id, output_dir)
+        finalize_pipeline_report(total_passed=bool(qa.get("passed")))
+    except SystemExit:
+        raise
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        failed_step = _pipeline_steps[-1]["step"] if _pipeline_steps else "unknown"
+        user_msg = f"流水线在「{failed_step}」步骤失败: {e}"
+        # Close the in-flight step as failed (finalize also forces running->failed).
+        if _pipeline_steps and _pipeline_steps[-1].get("status") == "running":
+            step_end(error=str(e), error_code="pipeline_exception",
+                     user_message=user_msg, developer_message=tb[-1500:])
+        finalize_pipeline_report(total_passed=False, error=str(e))
+        # Structured failure event for the dashboard WS.
+        p(json.dumps({
+            "event": "pipeline_failed",
+            "job_id": _pipeline_job_id,
+            "step": failed_step,
+            "user_message": user_msg,
+            "developer_message": str(e),
+            "success": False,
+        }))
+        p(f"\n{'═' * 60}")
+        p(f"  ✗ Pipeline 失败: {e}")
+        p(f"{'═' * 60}")
+        sys.exit(1)
+
+
+def _run_pipeline_steps(mode: str, job_id: str, output_dir: Path) -> dict:
+    """Execute all pipeline steps. Returns the QA report. Raises on any failure."""
     # === Step 1: Market Input ===
     t0 = time.time()
     step_header(1, "读取市场数据", "MarketInputAgent")
@@ -1591,8 +1886,8 @@ def main():
     _write(pkg_dir / "human-submit-guide.md", human_md)
     _write(pkg_dir / "platform-checklist.json", json.dumps({
         "platforms": [
-            {"platform": p, "status": "pending", "submitted_at": None, "review_result": None}
-            for p in opportunity["target_platforms"]
+            {"platform": plat, "status": "pending", "submitted_at": None, "review_result": None}
+            for plat in opportunity["target_platforms"]
         ]
     }, ensure_ascii=False, indent=2))
 
@@ -1620,7 +1915,7 @@ def main():
         "platforms": [
             {
                 "platform_id": plat,
-                "configured": False,
+                "configured": _platform_auth_status(plat)[0],
                 "can_upload": False,
                 "upload_status": "not_started",
                 "review_status": "not_submitted",
@@ -1635,72 +1930,7 @@ def main():
     }
     _write(output_dir / "submit-status.json", json.dumps(submit_status, ensure_ascii=False, indent=2))
 
-    # Generate submission-readiness-report (dynamic from platform registry)
-    platform_readiness = []
-    rejected_platforms = []
-
-    # Load platform registry
-    registry_file = DATA_DIR / "platforms" / "platform-registry.json"
-    registry = {}
-    if registry_file.exists():
-        reg_list = json.loads(registry_file.read_text(encoding="utf-8-sig"))
-        registry = {p["id"]: p for p in reg_list}
-
-    for plat in opportunity["target_platforms"]:
-        reg = registry.get(plat, {})
-        status = reg.get("status", "unknown")
-
-        if status == "not_supported":
-            rejected_platforms.append({"platform": plat, "reason": reg.get("notes", "平台不支持")})
-            continue
-        if status == "research_needed":
-            rejected_platforms.append({"platform": plat, "reason": "待调研，暂不可提交"})
-            continue
-
-        platform_readiness.append({
-            "platform": plat,
-            "name_cn": reg.get("name_cn", plat),
-            "name_en": reg.get("name_en", plat),
-            "ready": status == "active",
-            "submit_url": reg.get("submit_url", reg.get("developer_url", "")),
-            "developer_url": reg.get("developer_url", ""),
-            "upload_path": str(output_dir / "generated" / "miniapp" / (reg.get("upload_target", "") or "dist/build/mp-weixin")),
-            "cli_tool": reg.get("cli_tool", ""),
-            "automation_level": reg.get("automation_level", "manual"),
-            "missing_fields": [],
-            "required_materials": reg.get("required_materials", []),
-            "submission_steps": reg.get("submission_steps", []),
-            "compliance_risks": reg.get("compliance_risks", []),
-            "manual_steps": reg.get("submission_steps", []),
-        })
-
-    readiness = {
-        "job_id": job_id,
-        "app_name": best_app["name_cn"],
-        "target_platforms": [p["platform"] for p in platform_readiness],
-        "rejected_platforms": rejected_platforms,
-        "is_ready_to_submit": len(platform_readiness) > 0,
-        "blocking_issues": [],
-        "warning_issues": ["构建未在目标平台真机测试", "截图需人工准备"],
-        "required_materials": {
-            "app_name": True,
-            "description": True,
-            "category": True,
-            "keywords": True,
-            "privacy_summary": True,
-            "user_agreement_summary": True,
-            "review_notes": True,
-            "screenshots_copywriting": True,
-            "dist_path": True,
-        },
-        "platform_readiness": platform_readiness,
-        "next_action": "人工上传代码到各平台后台并提交审核",
-        "data_source": "demo_rule_based" if mode == "demo" else "real_import_manual",
-    }
-    _write(output_dir / "submission-readiness-report.json", json.dumps(readiness, ensure_ascii=False, indent=2))
-
     p(f"  publish-package/ 已生成")
-    p(f"  submission-readiness-report.json 已生成")
     p(f"  目标平台: {', '.join(opportunity['target_platforms'])}")
     step_end(artifact="publish-package/")
     step_done(f"data/outputs/{job_id}/publish-package/", time.time() - t0)
@@ -1730,8 +1960,30 @@ def main():
         for issue in qa["issues"][:5]:
             p(f"    ▸ {issue}")
     _write(output_dir / "qa-report.json", json.dumps(qa, ensure_ascii=False, indent=2))
-    step_end(artifact="qa-report.json")
+    # Mark step as failed if QA didn't pass, so pipeline-report stays consistent
+    if qa["passed"]:
+        step_end(artifact="qa-report.json")
+    else:
+        qa_fail_reason = "; ".join(qa["issues"][:3]) if qa["issues"] else "QA 检查未通过"
+        step_end(artifact="qa-report.json", error=qa_fail_reason,
+                 error_code="qa_failed", user_message=f"QA 未通过: {qa_fail_reason}")
     step_done(f"data/outputs/{job_id}/qa-report.json", time.time() - t0)
+
+    # === Step 11: Honest submission readiness + artifact manifest (post-QA) ===
+    step_header(11, "提交就绪评估 + 产物清单", "ReadinessAgent")
+    step_start("readiness", "提交就绪评估", "ReadinessAgent")
+    t0 = time.time()
+    readiness = build_submission_readiness(best_app, opportunity, qa, output_dir, mode)
+    _write(output_dir / "submission-readiness-report.json", json.dumps(readiness, ensure_ascii=False, indent=2))
+    manifest = build_artifact_manifest(output_dir, qa, readiness)
+    _write(output_dir / "artifact-manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+    p(f"  可提交审核: {'是' if readiness['ready_to_submit'] else '否'}")
+    if not readiness["ready_to_submit"]:
+        p(f"  阻塞项:")
+        for b in readiness["blocking_issues"]:
+            p(f"    ▸ {b}")
+    step_end(artifact="submission-readiness-report.json")
+    step_done(f"data/outputs/{job_id}/submission-readiness-report.json", time.time() - t0)
 
     # === SUMMARY ===
     p("\n" + "=" * 60)
@@ -1740,6 +1992,7 @@ def main():
     p(f"\n  选中应用: {best_app['name_cn']} ({best_app['name']})")
     p(f"  机会评分: {opportunity['opportunity_score']}/100")
     p(f"  QA 结果: {'通过 ✓' if qa['passed'] else '未通过 ✗'}")
+    p(f"  可提交审核: {'是' if readiness['ready_to_submit'] else '否（见 submission-readiness-report.json）'}")
     p(f"  Job ID:  {job_id}")
     p(f"  输出目录: {output_dir}")
     p(f"\n  产物清单:")
@@ -1758,6 +2011,7 @@ def main():
     p(f"  5. 审核通过后发布上线")
     p(f"\n  详细指南: {output_dir / 'human-actions.md'}")
     p("")
+    return qa
 
 
 if __name__ == "__main__":

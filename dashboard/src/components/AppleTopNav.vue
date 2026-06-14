@@ -1,16 +1,16 @@
 ﻿<script setup lang="ts">
-import type { JobDetail } from '../types/job'
+import type { JobDetail, PipelineMode } from '../types/job'
 
 const props = defineProps<{
   currentJob: JobDetail | null
   running: boolean
-  mode: string
+  mode: PipelineMode
 }>()
 
 const emit = defineEmits<{
   'toggle-menu': []
   start: []
-  'update:mode': [value: string]
+  'update:mode': [value: PipelineMode]
 }>()
 
 function getAppName(): string {

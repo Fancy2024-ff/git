@@ -17,6 +17,17 @@ export interface JobDetail {
   miniapp_path?: string
 }
 
+export interface PipelineStep {
+  name: string
+  agent: string
+  status: string
+  artifact?: string
+  error?: string
+  user_message?: string
+}
+
+export type PipelineMode = 'demo' | 'real'
+
 export interface DemoResult {
   success: boolean
   job_id: string | null

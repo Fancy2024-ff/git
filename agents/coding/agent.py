@@ -9,37 +9,52 @@ Flow:
 """
 
 import json
+import os
+import shutil
+from pathlib import Path
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
 from shared.models import PRDDocument
 from shared.llm import get_llm
-from config.settings import PROJECTS_DIR
+from config.settings import PROJECTS_DIR, PROJECT_ROOT
 from coding.task_dispatcher import dispatch_to_generator, GeneratorResult
+
+BASE_TEMPLATE = PROJECT_ROOT / "generator" / "src" / "templates" / "base"
 
 
 def run_coding(prd: PRDDocument) -> str:
     """
     Main coding flow:
     1. Call generator service to scaffold the project
-    2. Enhance with LLM-generated logic
-    3. Return project path
+    2. Fall back to local base-template generation if the service is down
+    3. Optionally enhance with LLM (only when ANTHROPIC_API_KEY is set)
+    4. Generate the API layer
+    Always returns a project path with a buildable structure.
     """
     # Step 1: Dispatch to Node.js generator
     result = dispatch_to_generator(prd)
 
     if not result.success:
-        # Fallback: generate locally without the service
-        print(f"[Coding] Generator service unavailable, using local generation")
+        # Fallback: generate locally without the service (still buildable)
+        print(f"[Coding] Generator service unavailable ({result.error}); using local base-template fallback")
         result = _generate_locally(prd)
 
-    # Step 2: Enhance the generated code with LLM
-    _enhance_with_llm(prd, result.project_path)
+    # Step 2: Enhance the generated code with LLM — optional, never blocking.
+    if os.getenv("ANTHROPIC_API_KEY"):
+        try:
+            _enhance_with_llm(prd, result.project_path)
+        except Exception as e:
+            print(f"[Coding] LLM enhancement failed (non-fatal): {e}")
+    else:
+        print("[Coding] ANTHROPIC_API_KEY not set — skipping LLM enhancement")
 
-    # Step 3: Generate API layer
-    _generate_api_layer(prd, result.project_path)
+    # Step 3: Generate API layer (non-fatal on failure)
+    try:
+        _generate_api_layer(prd, result.project_path)
+    except Exception as e:
+        print(f"[Coding] API layer generation failed (non-fatal): {e}")
 
     print(f"[Coding] Project generated at: {result.project_path}")
     print(f"[Coding] Pages generated: {result.pages_generated}")
@@ -48,52 +63,57 @@ def run_coding(prd: PRDDocument) -> str:
 
 
 def _generate_locally(prd: PRDDocument) -> GeneratorResult:
-    """Fallback: generate project structure locally without the Node.js service."""
-    from pathlib import Path
-
+    """Fallback: build the project from the base uni-app template so it stays buildable."""
     project_name = _sanitize_page_name(prd.app_name) or "miniapp-project"
     project_path = PROJECTS_DIR / project_name
     project_path.mkdir(parents=True, exist_ok=True)
 
-    # Create basic uni-app structure
+    # Copy the complete base template first (package.json, vite.config.ts,
+    # index.html, tsconfig.json, src/main.ts, src/App.vue, src/pages/index, ...).
+    if BASE_TEMPLATE.exists() and (BASE_TEMPLATE / "package.json").exists():
+        shutil.copytree(str(BASE_TEMPLATE), str(project_path), dirs_exist_ok=True)
+    else:
+        print(f"[Coding] WARNING: base template missing at {BASE_TEMPLATE}; project may be incomplete")
+
     src_dir = project_path / "src"
     pages_dir = src_dir / "pages"
     pages_dir.mkdir(parents=True, exist_ok=True)
 
-    # Generate index page
+    # Ensure an index page exists (base template ships one, but be defensive).
     index_dir = pages_dir / "index"
-    index_dir.mkdir(exist_ok=True)
-    _write_index_page(index_dir, prd)
+    if not (index_dir / "index.vue").exists():
+        index_dir.mkdir(exist_ok=True)
+        _write_index_page(index_dir, prd)
 
     # Generate feature pages
     pages_generated = 1  # index
     for feature in prd.core_features:
         page_name = _sanitize_page_name(feature.get("name", ""))
-        if not page_name:
+        if not page_name or page_name == "index":
             continue
         page_dir = pages_dir / page_name
         page_dir.mkdir(exist_ok=True)
         _write_feature_page(page_dir, page_name, feature)
         pages_generated += 1
 
-    # manifest.json
+    # manifest.json -> src/manifest.json (uni-app CLI location)
     manifest = {
         "name": prd.app_name,
         "appid": "",
         "description": prd.summary,
         "versionName": "1.0.0",
         "versionCode": "100",
-        "mp-weixin": {"appid": "", "setting": {"urlCheck": False}},
+        "mp-weixin": {"appid": "", "setting": {"urlCheck": False}, "usingComponents": True},
         "mp-alipay": {"appid": ""},
         "mp-toutiao": {"appid": ""},
     }
-    (project_path / "manifest.json").write_text(
+    (src_dir / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
-    # pages.json
-    pages_config = _build_pages_config(prd)
-    (project_path / "pages.json").write_text(
+    # pages.json -> src/pages.json (merge with base template if present)
+    pages_config = _build_pages_config(prd, src_dir / "pages.json")
+    (src_dir / "pages.json").write_text(
         json.dumps(pages_config, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
@@ -106,8 +126,6 @@ def _generate_locally(prd: PRDDocument) -> GeneratorResult:
 
 def _enhance_with_llm(prd: PRDDocument, project_path: str) -> None:
     """Use LLM to enhance generated page code with better logic."""
-    from pathlib import Path
-
     llm = get_llm(max_tokens=4096)
     prompt = ChatPromptTemplate.from_messages([
         (
@@ -417,12 +435,12 @@ async function handleAction() {{
 
 
 def _sanitize_page_name(name: str) -> str:
-    """Sanitize a feature name into a valid directory/file name."""
+    """Sanitize a feature name into a valid directory/file name.
+    Only keeps a-z0-9, consistent with generator/src/codegen/page-builder.ts."""
     import re as _re
-    # Remove anything that's not alphanumeric, Chinese, space, or dash
     name = name.lower().strip()
-    # Replace spaces and special chars with dash
-    name = _re.sub(r'[^a-z0-9一-鿿]', '-', name)
+    # Only keep ASCII alphanumeric — Chinese and other chars become dashes
+    name = _re.sub(r'[^a-z0-9]', '-', name)
     # Collapse multiple dashes
     name = _re.sub(r'-+', '-', name)
     # Strip leading/trailing dashes
@@ -431,23 +449,48 @@ def _sanitize_page_name(name: str) -> str:
     return name[:40] if name else ""
 
 
-def _build_pages_config(prd: PRDDocument) -> dict:
-    """Build pages.json config."""
-    pages = [{"path": "pages/index/index", "style": {"navigationBarTitleText": "首页"}}]
+def _build_pages_config(prd: PRDDocument, existing_path=None) -> dict:
+    """Build pages.json config, merging with the base template's pages if present."""
+    template_pages: list[dict] = []
+    template_global: dict = {}
+    template_tabbar: dict = {}
+    if existing_path is not None:
+        try:
+            existing = json.loads(Path(existing_path).read_text(encoding="utf-8"))
+            template_pages = existing.get("pages", [])
+            template_global = existing.get("globalStyle", {})
+            template_tabbar = existing.get("tabBar", {})
+        except Exception:
+            pass
 
+    seen = set()
+    pages: list[dict] = []
+
+    def _push(page: dict):
+        if not page.get("path") or page["path"] in seen:
+            return
+        seen.add(page["path"])
+        pages.append(page)
+
+    _push({"path": "pages/index/index", "style": {"navigationBarTitleText": "首页"}})
+    for pg in template_pages:
+        _push(pg)
     for feature in prd.core_features:
         name = _sanitize_page_name(feature.get("name", ""))
         if name:
-            pages.append({
+            _push({
                 "path": f"pages/{name}/{name}",
                 "style": {"navigationBarTitleText": feature.get("name", "")},
             })
 
-    return {
+    config = {
         "pages": pages,
-        "globalStyle": {
+        "globalStyle": template_global if template_global.get("navigationBarTextStyle") else {
             "navigationBarTextStyle": "black",
             "navigationBarBackgroundColor": "#ffffff",
             "backgroundColor": "#f5f5f5",
         },
     }
+    if template_tabbar.get("list"):
+        config["tabBar"] = template_tabbar
+    return config

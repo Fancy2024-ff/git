@@ -1,0 +1,65 @@
+# Miniapp Factory – docker-compose
+# Usage:
+#   cp .env.example .env   # fill in DASHBOARD_API_KEY and ANTHROPIC_API_KEY
+#   docker compose up --build
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_ENV=production
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - DASHBOARD_API_KEY=${DASHBOARD_API_KEY:?Set DASHBOARD_API_KEY in .env}
+      - DASHBOARD_ORIGIN=http://localhost:5173
+      - PIPELINE_TIMEOUT_SECONDS=${PIPELINE_TIMEOUT_SECONDS:-600}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GENERATOR_API_KEY=${GENERATOR_API_KEY:?Set GENERATOR_API_KEY in .env}
+      - GENERATOR_URL=http://generator:3001
+      - NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}
+      - QA_INSTALL_TIMEOUT=${QA_INSTALL_TIMEOUT:-600}
+      - QA_BUILD_TIMEOUT=${QA_BUILD_TIMEOUT:-600}
+    volumes:
+      - ./data/outputs:/app/data/outputs
+      - ./data/real_inputs:/app/data/real_inputs
+      - ./data/platform-auth:/app/data/platform-auth
+    depends_on:
+      generator:
+        condition: service_healthy
+    restart: unless-stopped
+
+  generator:
+    build:
+      context: .
+      dockerfile: Dockerfile.generator
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - GENERATOR_API_KEY=${GENERATOR_API_KEY:?Set GENERATOR_API_KEY in .env}
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+      args:
+        VITE_API_BASE_URL: http://localhost:8000
+        VITE_WS_BASE_URL: ws://localhost:8000
+        # NOTE: VITE_API_TOKEN is baked into the JS bundle at build time.
+        # Changing the API key requires rebuilding this image:
+        #   docker compose build dashboard
+        # For runtime-configurable tokens, see Dockerfile.dashboard's
+        # /config.json approach (nginx serves a runtime config file).
+        VITE_API_TOKEN: ${DASHBOARD_API_KEY:-}
+    ports:
+      - "5173:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped

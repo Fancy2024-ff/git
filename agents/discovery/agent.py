@@ -20,6 +20,7 @@ from shared.models import (
     MiniProgramPlatform,
 )
 from shared.llm import get_llm
+from shared.database import list_projects
 from discovery.scrapers.appstore import fetch_ai_apps_appstore
 from discovery.scrapers.miniprogram import search_miniprogram
 from discovery.analyzer import evaluate_opportunity, filter_opportunities
@@ -37,6 +38,9 @@ def run_discovery(
     3. Score and rank opportunities
     4. (Optional) Run 8-question deep evaluation to filter
     """
+    # Dedup: skip apps already in our pipeline
+    existing_names = {p.app_name.lower() for p in list_projects()}
+
     # Step 1: Fetch AI apps from app stores
     apps = fetch_ai_apps_appstore(category=category, limit=limit)
 
@@ -60,6 +64,8 @@ def run_discovery(
                 missing_platforms.append(platform)
 
         if missing_platforms:
+            if app.name.lower() in existing_names:
+                continue  # Already processed, skip
             gap_score = _calculate_gap_score(app, missing_platforms)
             opportunity = GapOpportunity(
                 app=app,

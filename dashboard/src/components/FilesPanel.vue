@@ -4,19 +4,40 @@ import type { JobDetail } from '../types/job'
 
 const props = defineProps<{ job: JobDetail }>()
 
+interface ManifestItem {
+  path: string
+  title: string
+  purpose: string
+  status: 'ready' | 'needs_review' | 'blocked' | 'draft'
+  affects_submission: boolean
+  next_action: string
+}
+
 interface FileItem {
   name: string
   type: string
   icon: string
 }
 
+// Prefer the structured artifact-manifest.json when present.
+const manifest = computed<ManifestItem[]>(() => {
+  const m = props.job.artifacts?.['artifact-manifest.json']
+  return Array.isArray(m?.items) ? m.items : []
+})
+
+const statusMeta: Record<string, { label: string; cls: string }> = {
+  ready: { label: '可用', cls: 'st-ready' },
+  needs_review: { label: '待人工确认', cls: 'st-review' },
+  blocked: { label: '阻塞', cls: 'st-blocked' },
+  draft: { label: '草稿', cls: 'st-draft' },
+}
+
+function statusLabel(s: string) { return statusMeta[s]?.label || s }
+function statusClass(s: string) { return statusMeta[s]?.cls || 'st-draft' }
+
 const artifacts = computed<FileItem[]>(() => {
   const a = props.job.artifacts || {}
-  return Object.keys(a).map(name => ({
-    name,
-    type: getType(name),
-    icon: getIcon(name),
-  }))
+  return Object.keys(a).map(name => ({ name, type: getType(name), icon: getIcon(name) }))
 })
 
 const buildFiles = computed<FileItem[]>(() => {
@@ -70,7 +91,24 @@ function downloadZip() {
     <div class="files-header">
       <button @click="downloadZip" class="btn-download">📦 下载 ZIP</button>
     </div>
-    <div class="files-grid">
+
+    <!-- Preferred: structured manifest with purpose + status -->
+    <div v-if="manifest.length" class="manifest-list">
+      <h3 class="col-title">产物状态</h3>
+      <div v-for="item in manifest" :key="item.path" class="manifest-card">
+        <div class="mf-main">
+          <span class="mf-title">{{ item.title }}</span>
+          <span class="mf-status" :class="statusClass(item.status)">{{ statusLabel(item.status) }}</span>
+          <span v-if="item.affects_submission" class="mf-affects">影响提交</span>
+        </div>
+        <div class="mf-path">{{ item.path }}</div>
+        <div class="mf-purpose">{{ item.purpose }}</div>
+        <div v-if="item.next_action && item.next_action !== '无'" class="mf-next">下一步：{{ item.next_action }}</div>
+      </div>
+    </div>
+
+    <!-- Fallback: plain file lists -->
+    <div v-else class="files-grid">
       <div class="files-col">
         <h3 class="col-title">Pipeline Artifacts</h3>
         <div class="file-list">
@@ -123,6 +161,29 @@ function downloadZip() {
   grid-template-columns: 1fr 1fr;
   gap: 24px;
 }
+
+@media (max-width: 640px) {
+  .files-grid { grid-template-columns: 1fr; }
+}
+
+.manifest-list { display: flex; flex-direction: column; gap: 10px; }
+.manifest-card {
+  background: var(--color-surface-solid);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: 14px 16px;
+}
+.mf-main { display: flex; align-items: center; gap: 8px; }
+.mf-title { font-size: 14px; font-weight: 600; color: var(--color-text-1); }
+.mf-status { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 980px; }
+.st-ready { background: var(--color-green-subtle); color: #166534; }
+.st-review { background: rgba(255,149,0,0.12); color: #92400e; }
+.st-blocked { background: rgba(255,59,48,0.10); color: #991b1b; }
+.st-draft { background: rgba(0,0,0,0.05); color: var(--color-text-3); }
+.mf-affects { font-size: 10px; color: var(--color-blue); background: var(--color-blue-subtle); padding: 2px 6px; border-radius: 4px; }
+.mf-path { font-size: 11px; font-family: var(--font-mono); color: var(--color-text-3); margin-top: 4px; }
+.mf-purpose { font-size: 12px; color: var(--color-text-2); margin-top: 4px; }
+.mf-next { font-size: 12px; color: #92400e; margin-top: 6px; }
 
 .col-title {
   font-size: 12px;

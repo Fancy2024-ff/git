@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import type { JobSummary, JobDetail } from './types/job'
-import { api, connectPipelineWS } from './services/api'
+import type { PipelineMode } from './types/job'
+import { api, connectPipelineWS, type WSHandle } from './services/api'
 import AppleTopNav from './components/AppleTopNav.vue'
 import JobMegaMenu from './components/JobMegaMenu.vue'
 import HeroSummary from './components/HeroSummary.vue'
@@ -24,8 +25,13 @@ const running = ref(false)
 const logs = ref<string[]>([])
 const activeTab = ref('overview')
 const error = ref('')
-const mode = ref<'demo' | 'real'>('demo')
-const showImport = ref(false)
+const wsStatus = ref('')
+const mode = ref<PipelineMode>('demo')
+
+function setMode(value: PipelineMode) { mode.value = value }
+
+let wsHandle: WSHandle | null = null
+let statusTimer: ReturnType<typeof setInterval> | null = null
 
 const tabs = [
   { id: 'overview', label: '总览' },
@@ -53,7 +59,7 @@ async function loadLatest() {
   try {
     currentJob.value = await api.getLatestJob()
   } catch (e: any) {
-    if (!e.message?.includes('404')) {
+    if (e?.status !== 404) {
       error.value = '无法连接后端: ' + e.message
     }
   }
@@ -68,11 +74,47 @@ async function selectJob(id: string) {
   }
 }
 
+function teardownWatchers() {
+  if (wsHandle) { wsHandle.disconnect(); wsHandle = null }
+  if (statusTimer) { clearInterval(statusTimer); statusTimer = null }
+}
+
+function finishRun(jobId?: string) {
+  running.value = false
+  wsStatus.value = ''
+  teardownWatchers()
+  if (jobId) {
+    selectJob(jobId)
+    loadJobs()
+    activeTab.value = 'overview'
+  } else {
+    loadJobs()
+  }
+}
+
+// Polling fallback: if the WS 'finished' message is ever lost, this detects the
+// backend has stopped and recovers the UI from a stuck "running" state.
+function startStatusPolling(jobId: string) {
+  if (statusTimer) clearInterval(statusTimer)
+  statusTimer = setInterval(async () => {
+    try {
+      const s = await api.getPipelineStatus()
+      if (!s.running) {
+        finishRun(jobId)
+      }
+    } catch {
+      /* transient backend hiccup — keep polling */
+    }
+  }, 4000)
+}
+
 async function startPipeline() {
   running.value = true
   error.value = ''
+  wsStatus.value = ''
   logs.value = []
   activeTab.value = 'logs'
+  teardownWatchers()
   try {
     if (mode.value === 'real') {
       const inputs = await api.getRealInputs()
@@ -90,28 +132,52 @@ async function startPipeline() {
       return
     }
     if (res.job_id) {
-      const wsConn = connectPipelineWS(res.job_id, (msg) => {
-        if (msg.type === 'log' || msg.type === 'step_log') logs.value.push(msg.data || msg.message || '')
-        if (msg.type === 'pipeline_finished') {
-          running.value = false
-          wsConn.disconnect()
-          if (msg.job_id) {
-            selectJob(msg.job_id)
-            loadJobs()
-            activeTab.value = 'overview'
+      startStatusPolling(res.job_id)
+      wsHandle = connectPipelineWS(res.job_id, {
+        onMessage: (msg) => {
+          if (msg.type === 'log' || msg.type === 'step_log') {
+            logs.value.push(msg.data || msg.message || '')
+            // Cap frontend log buffer to prevent unbounded memory growth
+            if (logs.value.length > 3000) {
+              logs.value.splice(0, logs.value.length - 3000)
+            }
           }
-        }
+          if (msg.type === 'pipeline_failed') {
+            error.value = '流水线失败: ' + (msg.user_message || msg.error || '未知错误')
+            finishRun(msg.job_id)
+          }
+          if (msg.type === 'pipeline_finished') {
+            finishRun(msg.job_id)
+          }
+        },
+        onError: (info) => {
+          if (info.code === 4001) {
+            error.value = '认证失败，请检查 VITE_API_TOKEN 是否与后端 DASHBOARD_API_KEY 一致'
+          }
+        },
+        onReconnect: (attempt) => {
+          wsStatus.value = `连接断开，重试中… (第 ${attempt} 次)`
+        },
+        onClose: () => {
+          // WS gave up; the status poller is the safety net.
+          wsStatus.value = '实时日志连接已断开，改用状态轮询'
+        },
       })
     }
   } catch (e: any) {
     error.value = `API error: ${e.message}`
     running.value = false
+    teardownWatchers()
   }
 }
 
 onMounted(async () => {
   await loadJobs()
   await loadLatest()
+})
+
+onBeforeUnmount(() => {
+  teardownWatchers()
 })
 </script>
 
@@ -123,7 +189,7 @@ onMounted(async () => {
       :mode="mode"
       @toggle-menu="menuOpen = !menuOpen"
       @start="startPipeline"
-      @update:mode="mode = $event"
+      @update:mode="setMode"
     />
 
     <JobMegaMenu
@@ -139,6 +205,8 @@ onMounted(async () => {
         {{ error }}
         <button class="retry-btn" @click="error = ''; loadJobs(); loadLatest()">重试</button>
       </div>
+
+      <div v-if="wsStatus && running" class="ws-banner">{{ wsStatus }}</div>
 
       <div v-if="currentJob" class="content">
         <HeroSummary :job="currentJob" />
@@ -205,6 +273,15 @@ onMounted(async () => {
   background: transparent;
   color: #c41e16;
   cursor: pointer;
+}
+
+.ws-banner {
+  background: rgba(255, 149, 0, 0.08);
+  color: #92400e;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  margin-bottom: 16px;
 }
 
 .content {

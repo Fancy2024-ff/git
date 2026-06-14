@@ -3,12 +3,22 @@ Task dispatcher - sends PRD to the Node.js generator service via HTTP.
 """
 
 import json
+import os
 from dataclasses import dataclass
 
 import httpx
 
 from shared.models import PRDDocument
 from config.settings import GENERATOR_URL
+
+GENERATOR_API_KEY = os.environ.get("GENERATOR_API_KEY", "")
+
+
+def _auth_headers() -> dict[str, str]:
+    """Build Authorization header if GENERATOR_API_KEY is configured."""
+    if GENERATOR_API_KEY:
+        return {"Authorization": f"Bearer {GENERATOR_API_KEY}"}
+    return {}
 
 
 @dataclass
@@ -47,6 +57,7 @@ def dispatch_to_generator(prd: PRDDocument, template: str = "ai-tool") -> Genera
         response = httpx.post(
             f"{GENERATOR_URL}/generate",
             json=payload,
+            headers=_auth_headers(),
             timeout=60,
         )
         response.raise_for_status()

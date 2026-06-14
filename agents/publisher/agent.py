@@ -59,8 +59,8 @@ def _validate_project(project_path: Path) -> dict:
     """Validate that the project has required files for submission."""
     issues = []
 
-    # Check essential files
-    required_files = ["manifest.json", "pages.json"]
+    # Check essential files (uni-app CLI places configs under src/)
+    required_files = ["src/manifest.json", "src/pages.json"]
     for f in required_files:
         if not (project_path / f).exists():
             issues.append(f"Missing {f}")
@@ -73,7 +73,7 @@ def _validate_project(project_path: Path) -> dict:
         issues.append("No pages found in src/pages")
 
     # Check manifest has required fields
-    manifest_path = project_path / "manifest.json"
+    manifest_path = project_path / "src" / "manifest.json"
     if manifest_path.exists():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if not manifest.get("name"):

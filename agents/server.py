@@ -6,16 +6,17 @@ Zero duplicate routes. Each path+method defined exactly once.
 import os
 import sys
 import json
+import hmac
 import asyncio
 import subprocess
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
-import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, Depends, Header
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, Depends, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware
+from pydantic import BaseModel, Field, ConfigDict, model_validator, ValidationError
 
 # ---------------------------------------------------------------------------
 # Path setup
@@ -30,14 +31,25 @@ PLATFORM_AUTH_DIR = DATA_DIR / "platform-auth"
 REAL_INPUTS_DIR = DATA_DIR / "real_inputs"
 
 # ---------------------------------------------------------------------------
-# Auth
+# Auth + environment
 # ---------------------------------------------------------------------------
+APP_ENV = os.environ.get("APP_ENV", "development").lower()
 DASHBOARD_API_KEY = os.environ.get("DASHBOARD_API_KEY", "")
 DASHBOARD_ORIGIN = os.environ.get("DASHBOARD_ORIGIN", "http://localhost:5173")
+API_HOST = os.environ.get("API_HOST", "127.0.0.1")
+API_PORT = int(os.environ.get("API_PORT", "8000"))
+
+# In production a real API key is mandatory — refuse to start without one.
+if APP_ENV == "production" and not DASHBOARD_API_KEY:
+    raise RuntimeError(
+        "APP_ENV=production requires DASHBOARD_API_KEY to be set. "
+        "Refusing to start with authentication disabled."
+    )
 
 async def verify_api_key(x_api_key: str = Header(default="")):
-    """Optional API key auth. Only enforced if DASHBOARD_API_KEY is set."""
-    if DASHBOARD_API_KEY and x_api_key != DASHBOARD_API_KEY:
+    """API key auth. Enforced whenever DASHBOARD_API_KEY is set (always in production).
+    Uses constant-time comparison to prevent timing attacks."""
+    if DASHBOARD_API_KEY and not hmac.compare_digest(x_api_key, DASHBOARD_API_KEY):
         raise HTTPException(401, "Invalid API key")
 
 # ---------------------------------------------------------------------------
@@ -53,14 +65,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 # ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
 import time as _time
+from collections import deque
+
 PIPELINE_TIMEOUT = int(os.environ.get("PIPELINE_TIMEOUT_SECONDS", "600"))
+MAX_LOG_LINES = int(os.environ.get("MAX_LOG_LINES", "5000"))
+
 pipeline_process: Optional[subprocess.Popen] = None
 pipeline_job_id: Optional[str] = None
-pipeline_logs: list[str] = []
+pipeline_logs: deque[str] = deque(maxlen=MAX_LOG_LINES)
 # WebSocket clients keyed by job_id (or "__global__" for legacy)
 ws_clients: dict[str, list[WebSocket]] = {}
 
@@ -69,15 +97,28 @@ ws_clients: dict[str, list[WebSocket]] = {}
 # ---------------------------------------------------------------------------
 
 def _generate_job_id() -> str:
-    """YYYYMMDD-XXXXXX (date + 6 random hex chars)."""
+    """YYYYMMDD-XXXXXXXXXXXX (date + 12 random hex chars)."""
     import secrets
-    return datetime.now().strftime("%Y%m%d") + "-" + secrets.token_hex(3)
+    return datetime.now().strftime("%Y%m%d") + "-" + secrets.token_hex(6)
 
 
 def _read_json(path: Path):
     """Read JSON with BOM-safe encoding."""
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
+
+def _flush_logs_to_disk(job_id: str):
+    """Write buffered pipeline logs to a file in the job's output directory, then clear memory."""
+    if not pipeline_logs:
+        return
+    try:
+        job_dir = OUTPUTS_DIR / job_id
+        if job_dir.exists():
+            log_file = job_dir / "pipeline.log"
+            log_file.write_text("\n".join(pipeline_logs), encoding="utf-8")
+    except Exception:
+        pass  # Best-effort; don't crash the cleanup path
+    pipeline_logs.clear()
 
 async def _broadcast(msg: dict, job_id: str = None):
     """Send JSON message to WebSocket clients for a specific job (or all if no job_id)."""
@@ -103,7 +144,46 @@ async def _broadcast(msg: dict, job_id: str = None):
 # ---------------------------------------------------------------------------
 
 class PipelineStartRequest(BaseModel):
-    mode: str = "demo"
+    mode: Literal["demo", "real"] = "demo"
+
+
+class RealAppInput(BaseModel):
+    """Validated + normalized real App input for Real Mode.
+
+    Required: name, source, category, (description OR description_cn),
+    (features OR features_cn non-empty). Everything else is defaulted/normalized
+    so the pipeline never hits a KeyError on a defaultable field.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    name: str
+    source: str
+    category: str
+    name_cn: str = ""
+    description: str = ""
+    description_cn: str = ""
+    features: list[str] = Field(default_factory=list)
+    features_cn: list[str] = Field(default_factory=list)
+    downloads: int = 0
+    rating: float = 0.0
+    review_count: int = 0
+    monetization: str = "unknown"
+
+    @model_validator(mode="after")
+    def _check_and_normalize(self):
+        if not (self.description or self.description_cn):
+            raise ValueError("description or description_cn is required")
+        if not (self.features or self.features_cn):
+            raise ValueError("features or features_cn must contain at least one item")
+        # Cross-fill defaults
+        self.name_cn = self.name_cn or self.name
+        self.description = self.description or self.description_cn
+        self.description_cn = self.description_cn or self.description
+        self.features = self.features or self.features_cn
+        self.features_cn = self.features_cn or self.features
+        self.monetization = self.monetization or "unknown"
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +210,7 @@ async def pipeline_start(req: PipelineStartRequest = PipelineStartRequest()):
     # Generate job_id BEFORE starting
     job_id = _generate_job_id()
     pipeline_job_id = job_id
-    pipeline_logs = []
+    pipeline_logs.clear()
 
     python_exe = sys.executable
     cmd = [
@@ -153,7 +233,7 @@ async def pipeline_start(req: PipelineStartRequest = PipelineStartRequest()):
         env=env,
     )
 
-    asyncio.get_event_loop().create_task(_stream_pipeline_output(job_id))
+    asyncio.create_task(_stream_pipeline_output(job_id))
 
     return {"accepted": True, "job_id": job_id, "mode": req.mode}
 
@@ -161,48 +241,62 @@ async def _stream_pipeline_output(job_id: str):
     """Read pipeline stdout line by line, broadcast via WebSocket. Kill on timeout."""
     global pipeline_process
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     started_at = _time.time()
 
-    while pipeline_process and pipeline_process.poll() is None:
-        # Timeout check
-        elapsed = _time.time() - started_at
-        if elapsed > PIPELINE_TIMEOUT:
-            pipeline_process.kill()
-            await _broadcast({"type": "pipeline_failed", "job_id": job_id, "error": f"Timeout ({PIPELINE_TIMEOUT}s)", "success": False}, job_id=job_id)
-            return
+    try:
+        while pipeline_process and pipeline_process.poll() is None:
+            # Total timeout check
+            elapsed = _time.time() - started_at
+            if elapsed > PIPELINE_TIMEOUT:
+                pipeline_process.kill()
+                await _broadcast({"type": "pipeline_failed", "job_id": job_id, "error": f"Timeout ({PIPELINE_TIMEOUT}s)", "success": False}, job_id=job_id)
+                return
 
-        # Read with per-line timeout (prevents infinite block on no output)
-        try:
-            line = await asyncio.wait_for(
-                loop.run_in_executor(None, pipeline_process.stdout.readline),
-                timeout=float(PIPELINE_TIMEOUT - elapsed + 1)
-            )
-        except asyncio.TimeoutError:
-            pipeline_process.kill()
-            await _broadcast({"type": "pipeline_failed", "job_id": job_id, "error": f"Timeout ({PIPELINE_TIMEOUT}s) - no output", "success": False}, job_id=job_id)
-            return
-        if not line:
-            break
-        line = line.rstrip()
-        pipeline_logs.append(line)
-
-        # Try parsing structured event from pipeline
-        if line.startswith("{") and '"event"' in line:
+            # Per-line read timeout: min(30s, remaining budget) — prevents both
+            # blocking forever on a stuck process and overshooting the total timeout.
+            remaining = PIPELINE_TIMEOUT - elapsed
+            line_timeout = min(30.0, max(0.5, remaining))
             try:
-                event = json.loads(line)
-                event["type"] = event.pop("event", "step_log")
-                await _broadcast(event, job_id=job_id)
+                line = await asyncio.wait_for(
+                    loop.run_in_executor(None, pipeline_process.stdout.readline),
+                    timeout=line_timeout,
+                )
+            except asyncio.TimeoutError:
+                # No output within line_timeout — loop back and let the elapsed check decide
                 continue
-            except Exception:
-                pass
+            except (ValueError, OSError):
+                # Pipe closed (stop was called)
+                break
+            if not line:
+                break
+            line = line.rstrip()
+            pipeline_logs.append(line)
 
-        await _broadcast({"type": "step_log", "data": line, "job_id": job_id, "message": line}, job_id=job_id)
+            # Try parsing structured event from pipeline
+            if line.startswith("{") and '"event"' in line:
+                try:
+                    event = json.loads(line)
+                    event["type"] = event.pop("event", "step_log")
+                    await _broadcast(event, job_id=job_id)
+                    continue
+                except Exception:
+                    pass
 
-    # Pipeline finished
-    exit_code = pipeline_process.returncode if pipeline_process else -1
-    success = exit_code == 0
-    await _broadcast({"type": "pipeline_finished", "job_id": job_id, "success": success}, job_id=job_id)
+            await _broadcast({"type": "step_log", "data": line, "job_id": job_id, "message": line}, job_id=job_id)
+
+        # Pipeline finished
+        exit_code = pipeline_process.returncode if pipeline_process else -1
+        success = exit_code == 0
+        try:
+            await _broadcast({"type": "pipeline_finished", "job_id": job_id, "success": success}, job_id=job_id)
+        except Exception:
+            pass  # Best-effort; status polling is the safety net
+    finally:
+        _flush_logs_to_disk(job_id)
+        ws_clients.pop(job_id, None)
+        if pipeline_process is not None:
+            pipeline_process = None  # Idempotent fallback if stop didn't clear it
 
 
 @app.get("/api/pipeline/status")
@@ -218,12 +312,18 @@ def pipeline_status():
 
 @app.post("/api/pipeline/stop", dependencies=[Depends(verify_api_key)])
 def pipeline_stop():
-    """Kill running pipeline."""
+    """Kill running pipeline. Immediately clears state so next start won't 409."""
     global pipeline_process
     if pipeline_process and pipeline_process.poll() is None:
+        job_id = pipeline_job_id
         pipeline_process.terminate()
-        pipeline_process = None
-        return {"stopped": True, "job_id": pipeline_job_id}
+        try:
+            pipeline_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pipeline_process.kill()
+            pipeline_process.wait(timeout=2)
+        pipeline_process = None  # Immediate cleanup; stream task's finally is idempotent
+        return {"stopped": True, "job_id": job_id}
     raise HTTPException(409, "No pipeline running")
 
 
@@ -237,7 +337,7 @@ async def ws_pipeline_job(ws: WebSocket, job_id: str):
     # Token validation via query param
     if DASHBOARD_API_KEY:
         token = ws.query_params.get("token", "")
-        if token != DASHBOARD_API_KEY:
+        if not hmac.compare_digest(token, DASHBOARD_API_KEY):
             await ws.close(code=4001, reason="Unauthorized")
             return
     await ws.accept()
@@ -247,7 +347,7 @@ async def ws_pipeline_job(ws: WebSocket, job_id: str):
 
     # Send buffered logs for this job
     if pipeline_job_id == job_id:
-        for line in pipeline_logs[-100:]:
+        for line in list(pipeline_logs)[-100:]:
             await ws.send_text(json.dumps({"type": "step_log", "data": line, "job_id": job_id, "message": line}))
 
     running = pipeline_process is not None and pipeline_process.poll() is None and pipeline_job_id == job_id
@@ -266,7 +366,7 @@ async def ws_pipeline_global(ws: WebSocket):
     """Global WebSocket (deprecated). Validates token if set."""
     if DASHBOARD_API_KEY:
         token = ws.query_params.get("token", "")
-        if token != DASHBOARD_API_KEY:
+        if not hmac.compare_digest(token, DASHBOARD_API_KEY):
             await ws.close(code=4001, reason="Unauthorized")
             return
     await ws.accept()
@@ -274,7 +374,7 @@ async def ws_pipeline_global(ws: WebSocket):
         ws_clients["__global__"] = []
     ws_clients["__global__"].append(ws)
 
-    for line in pipeline_logs[-50:]:
+    for line in list(pipeline_logs)[-50:]:
         await ws.send_text(json.dumps({"type": "step_log", "data": line, "job_id": pipeline_job_id}))
 
     running = pipeline_process is not None and pipeline_process.poll() is None
@@ -293,16 +393,18 @@ async def ws_pipeline_global(ws: WebSocket):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/jobs")
-def list_jobs():
-    """List all pipeline jobs, sorted newest first."""
+def list_jobs(limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0)):
+    """List all pipeline jobs, sorted newest first. Supports pagination."""
     if not OUTPUTS_DIR.exists():
-        return {"jobs": []}
+        return {"jobs": [], "total": 0}
     jobs = []
-    dirs = sorted(
+    all_dirs = sorted(
         [d for d in OUTPUTS_DIR.iterdir() if d.is_dir()],
         key=lambda d: d.stat().st_mtime,
         reverse=True,
     )
+    total = len(all_dirs)
+    dirs = all_dirs[offset:offset + limit]
     for d in dirs:
         job: dict = {"id": d.name, "path": str(d)}
         # QA report
@@ -321,10 +423,10 @@ def list_jobs():
         job["artifacts"] = [f.name for f in d.iterdir() if f.is_file()]
         job["has_miniapp"] = (d / "generated" / "miniapp").exists()
         jobs.append(job)
-    return {"jobs": jobs}
+    return {"jobs": jobs, "total": total}
 
 
-@app.get("/api/jobs/latest")
+@app.get("/api/jobs/latest", dependencies=[Depends(verify_api_key)])
 def get_latest_job():
     """Most recent job by modification time."""
     if not OUTPUTS_DIR.exists():
@@ -336,7 +438,7 @@ def get_latest_job():
     return get_job_detail(dirs[0].name)
 
 
-@app.get("/api/jobs/{job_id}")
+@app.get("/api/jobs/{job_id}", dependencies=[Depends(verify_api_key)])
 def get_job_detail(job_id: str):
     """Full details for a specific job."""
     job_dir = OUTPUTS_DIR / job_id
@@ -348,10 +450,13 @@ def get_job_detail(job_id: str):
     for f in job_dir.iterdir():
         if f.is_file():
             if f.suffix == ".json":
-                try:
-                    result["artifacts"][f.name] = _read_json(f)
-                except Exception:
-                    result["artifacts"][f.name] = {"error": "parse failed"}
+                if f.stat().st_size > 512 * 1024:
+                    result["artifacts"][f.name] = {"_truncated": True, "_size_bytes": f.stat().st_size}
+                else:
+                    try:
+                        result["artifacts"][f.name] = _read_json(f)
+                    except Exception:
+                        result["artifacts"][f.name] = {"error": "parse failed"}
             elif f.suffix == ".md":
                 result["artifacts"][f.name] = f.read_text(encoding="utf-8-sig")
 
@@ -368,7 +473,7 @@ def get_job_detail(job_id: str):
     return result
 
 
-@app.get("/api/jobs/{job_id}/artifact")
+@app.get("/api/jobs/{job_id}/artifact", dependencies=[Depends(verify_api_key)])
 def get_job_artifact(job_id: str, file: str):
     """Read a specific artifact file from a job."""
     job_dir = OUTPUTS_DIR / job_id
@@ -491,15 +596,45 @@ def get_real_inputs():
 
 @app.post("/api/real-inputs/apps", dependencies=[Depends(verify_api_key)])
 async def save_real_inputs(request: Request):
-    """Save real app data."""
+    """Validate, normalize and save real app data. Returns 400 with per-item errors."""
     body = await request.body()
-    data = json.loads(body)
-    apps = data if isinstance(data, list) else data.get("apps", [])
+    try:
+        data = json.loads(body)
+    except Exception:
+        raise HTTPException(400, "Invalid JSON body")
+
+    raw = data if isinstance(data, list) else data.get("apps", [])
+    if not isinstance(raw, list):
+        raise HTTPException(400, "Expected a JSON array of apps")
+    if not raw:
+        raise HTTPException(400, "At least one app is required")
+
+    normalized: list[dict] = []
+    errors: list[dict] = []
+    for i, item in enumerate(raw):
+        if not isinstance(item, dict):
+            errors.append({"index": i, "errors": [{"field": "", "message": "must be an object"}]})
+            continue
+        try:
+            model = RealAppInput(**item)
+            normalized.append(model.model_dump())
+        except ValidationError as e:
+            errors.append({
+                "index": i,
+                "errors": [
+                    {"field": ".".join(str(x) for x in err["loc"]), "message": err["msg"]}
+                    for err in e.errors()
+                ],
+            })
+
+    if errors:
+        raise HTTPException(status_code=400, detail={"message": "Validation failed", "errors": errors})
+
     REAL_INPUTS_DIR.mkdir(parents=True, exist_ok=True)
     (REAL_INPUTS_DIR / "apps.json").write_text(
-        json.dumps(apps, ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    return {"saved": len(apps)}
+    return {"saved": len(normalized)}
 
 
 # ---------------------------------------------------------------------------
@@ -558,19 +693,30 @@ def download_job(job_id: str):
     from fastapi.responses import FileResponse
     from starlette.background import BackgroundTask
 
+    MAX_ZIP_SIZE = 100 * 1024 * 1024  # 100MB
+
     job_dir = OUTPUTS_DIR / job_id
     if not job_dir.exists():
         raise HTTPException(404, "Job not found")
+
+    # Collect files and enforce size cap
+    total_size = 0
+    files_to_zip = []
+    for f in job_dir.rglob("*"):
+        if f.is_file() and "node_modules" not in str(f):
+            total_size += f.stat().st_size
+            if total_size > MAX_ZIP_SIZE:
+                raise HTTPException(413, "Job artifacts exceed maximum download size (100MB)")
+            files_to_zip.append(f)
 
     # Create zip in temp directory
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
     tmp.close()
 
     with zipfile.ZipFile(tmp.name, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for f in job_dir.rglob("*"):
-            if f.is_file() and "node_modules" not in str(f):
-                arcname = str(f.relative_to(job_dir))
-                zf.write(f, arcname)
+        for f in files_to_zip:
+            arcname = str(f.relative_to(job_dir))
+            zf.write(f, arcname)
 
     # BackgroundTask to clean up temp file after response is sent
     def cleanup():
@@ -588,10 +734,36 @@ def download_job(job_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Graceful shutdown
+# ---------------------------------------------------------------------------
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up on server shutdown: kill any running pipeline subprocess."""
+    global pipeline_process
+    if pipeline_process and pipeline_process.poll() is None:
+        pipeline_process.terminate()
+        try:
+            pipeline_process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            pipeline_process.kill()
+        pipeline_process = None
+    if pipeline_job_id:
+        _flush_logs_to_disk(pipeline_job_id)
+
+
+# ---------------------------------------------------------------------------
 # Entrypoint
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    import uvicorn
+    # reload only in development; bind to 127.0.0.1 by default for safety.
+    uvicorn.run(
+        "server:app" if APP_ENV != "production" else app,
+        host=API_HOST,
+        port=API_PORT,
+        reload=(APP_ENV != "production"),
+    )
 
 

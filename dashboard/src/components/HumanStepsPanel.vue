@@ -7,6 +7,10 @@ const props = defineProps<{ job: JobDetail }>()
 const readiness = computed(() => props.job.artifacts?.['submission-readiness-report.json'] || null)
 const platforms = computed(() => readiness.value?.platform_readiness || [])
 const rejected = computed(() => readiness.value?.rejected_platforms || [])
+const isReady = computed(() =>
+  readiness.value ? !!(readiness.value.ready_to_submit ?? readiness.value.is_ready_to_submit) : false
+)
+const blockingIssues = computed<string[]>(() => readiness.value?.blocking_issues || [])
 const distPath = computed(() => {
   const qa = props.job.artifacts?.['qa-report.json']
   return qa?.checks?.dist_path || props.job.miniapp_path || ''
@@ -27,8 +31,13 @@ function copyText(text: string, label: string) {
     </div>
 
     <template v-else>
-      <div class="ready-banner" :class="readiness.is_ready_to_submit ? 'ready-banner--yes' : 'ready-banner--no'">
-        {{ readiness.is_ready_to_submit ? '可以提交审核' : '尚未准备就绪' }}
+      <div class="ready-banner" :class="isReady ? 'ready-banner--yes' : 'ready-banner--no'">
+        {{ isReady ? '✓ 可以提交审核' : '✗ 当前不能提交审核' }}
+      </div>
+
+      <div v-if="!isReady && blockingIssues.length" class="blocking-box">
+        <div class="blocking-title">阻塞原因（必须先解决）</div>
+        <div v-for="b in blockingIssues" :key="b" class="blocking-item">• {{ b }}</div>
       </div>
 
       <div v-if="readiness.warning_issues?.length" class="warnings">
@@ -56,8 +65,8 @@ function copyText(text: string, label: string) {
         </div>
 
         <div v-if="plat.submission_steps?.length" class="steps-list">
-          <div v-for="(step, i) in plat.submission_steps" :key="i" class="step-item">
-            <span class="step-num">{{ i + 1 }}</span>
+          <div v-for="(step, i) in (plat.submission_steps as string[])" :key="i" class="step-item">
+            <span class="step-num">{{ (i as number) + 1 }}</span>
             <span class="step-text">{{ step }}</span>
           </div>
         </div>
@@ -98,6 +107,10 @@ function copyText(text: string, label: string) {
 .ready-banner { padding: 12px 20px; border-radius: var(--radius-md); font-size: 14px; font-weight: 600; margin-bottom: 20px; text-align: center; }
 .ready-banner--yes { background: var(--color-green-subtle); color: #166534; }
 .ready-banner--no { background: rgba(255,59,48,0.08); color: #991b1b; }
+
+.blocking-box { background: rgba(255,59,48,0.06); border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 16px; }
+.blocking-title { font-size: 12px; font-weight: 700; color: #991b1b; text-transform: uppercase; margin-bottom: 6px; }
+.blocking-item { font-size: 13px; color: #991b1b; font-weight: 500; padding: 2px 0; }
 
 .warnings { margin-bottom: 16px; }
 .warning-item { font-size: 12px; color: #92400e; background: var(--color-orange-subtle); padding: 6px 12px; border-radius: 6px; margin-bottom: 4px; }

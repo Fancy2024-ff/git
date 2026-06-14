@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, computed } from 'vue'
+import { ref, watch, nextTick, computed, onBeforeUnmount } from 'vue'
 
 const props = defineProps<{ logs: string[] }>()
 
@@ -9,6 +9,10 @@ const now = ref(Date.now())
 
 let timer: ReturnType<typeof setInterval> | null = null
 timer = setInterval(() => { now.value = Date.now() }, 1000)
+
+onBeforeUnmount(() => {
+  if (timer) { clearInterval(timer); timer = null }
+})
 
 const isLive = computed(() => {
   return lastLogTime.value > 0 && (now.value - lastLogTime.value) < 3000

@@ -36,18 +36,20 @@ def save_project(project: MiniAppProject) -> None:
 
 
 def get_project(project_id: str) -> MiniAppProject | None:
-    """Get a project by ID."""
-    db = _load_db()
-    data = db["projects"].get(project_id)
-    if data:
-        return MiniAppProject(**data)
-    return None
+    """Get a project by ID (file-locked to avoid reading partial writes)."""
+    with DB_LOCK:
+        db = _load_db()
+        data = db["projects"].get(project_id)
+        if data:
+            return MiniAppProject(**data)
+        return None
 
 
 def list_projects(status: ProjectStatus | None = None) -> list[MiniAppProject]:
-    """List projects, optionally filtered by status."""
-    db = _load_db()
-    projects = [MiniAppProject(**data) for data in db["projects"].values()]
-    if status:
-        projects = [p for p in projects if p.status == status]
-    return projects
+    """List projects, optionally filtered by status (file-locked)."""
+    with DB_LOCK:
+        db = _load_db()
+        projects = [MiniAppProject(**data) for data in db["projects"].values()]
+        if status:
+            projects = [p for p in projects if p.status == status]
+        return projects

@@ -4,6 +4,7 @@ LangGraph Pipeline - The main orchestrator that drives the entire factory loop.
 Flow: Discovery → Research → Coding → QA → Publishing → Review → (loop back)
 """
 
+import traceback
 from typing import TypedDict
 from langgraph.graph import StateGraph, END
 
@@ -63,7 +64,7 @@ def discovery_node(state: PipelineState) -> dict:
             "should_continue": True,
         }
     except Exception as e:
-        return {"error": f"Discovery failed: {e}", "should_continue": False}
+        return {"error": f"Discovery failed: {e}\n{traceback.format_exc()}", "should_continue": False}
 
 
 def research_node(state: PipelineState) -> dict:
@@ -84,7 +85,7 @@ def research_node(state: PipelineState) -> dict:
 
         return {"prd": prd, "current_project": project, "should_continue": True}
     except Exception as e:
-        return {"error": f"Research failed: {e}", "should_continue": False}
+        return {"error": f"Research failed: {e}\n{traceback.format_exc()}", "should_continue": False}
 
 
 def coding_node(state: PipelineState) -> dict:
@@ -106,7 +107,7 @@ def coding_node(state: PipelineState) -> dict:
 
         return {"project_path": project_path, "current_project": project, "should_continue": True}
     except Exception as e:
-        return {"error": f"Coding failed: {e}", "should_continue": False}
+        return {"error": f"Coding failed: {e}\n{traceback.format_exc()}", "should_continue": False}
 
 
 def publisher_node(state: PipelineState) -> dict:
@@ -127,7 +128,7 @@ def publisher_node(state: PipelineState) -> dict:
 
         return {"publish_result": result, "should_continue": True}
     except Exception as e:
-        return {"error": f"Publishing failed: {e}", "should_continue": False}
+        return {"error": f"Publishing failed: {e}\n{traceback.format_exc()}", "should_continue": False}
 
 
 def qa_node(state: PipelineState) -> dict:
@@ -156,7 +157,12 @@ def qa_node(state: PipelineState) -> dict:
                 "should_continue": qa_result.score >= 40,  # Hard fail below 40
             }
     except Exception as e:
-        return {"error": f"QA failed: {e}", "should_continue": True}  # Don't block on QA errors
+        # QA crash should NOT silently continue to publisher
+        return {
+            "error": f"QA failed: {e}\n{traceback.format_exc()}",
+            "qa_result": {"passed": False, "score": 0, "error": str(e)},
+            "should_continue": False,
+        }
 
 
 def review_node(state: PipelineState) -> dict:
@@ -182,7 +188,7 @@ def review_node(state: PipelineState) -> dict:
 
         return {"review_result": review_data, "should_continue": should_loop}
     except Exception as e:
-        return {"error": f"Review failed: {e}", "should_continue": False}
+        return {"error": f"Review failed: {e}\n{traceback.format_exc()}", "should_continue": False}
 
 
 def should_continue_after_qa(state: PipelineState) -> str:

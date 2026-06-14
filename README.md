@@ -1,15 +1,18 @@
-﻿# Mini App Factory
+# Mini App Factory
 
 Agent 驱动的小程序批量生产系统。自动发现 App Store / Google Play 上已验证的 AI 应用需求，识别小程序生态供给缺口，生成产品方案、代码、上架材料。
 
 ## 当前 MVP 已跑通
 
-- 一条命令完成 9 步流水线闭环
+- 一条命令完成 10+ 步流水线闭环
 - 从 5 个候选 App 中自动选择最优机会
 - 自动生成 PRD、uni-app 小程序代码、上架材料、人工操作指南
 - 自动执行 npm install + npm run build:mp-weixin
-- QA 自动验证构建产物
+- QA 自动验证构建产物（文件完整性、乱码检测、路径校验、构建验证）
 - 生成的 dist/build/mp-weixin 可直接导入微信开发者工具
+- WebSocket 实时日志推送（per-job 路由 + 指数退避重连）
+- API 全链路认证（常量时间比较、路径穿越防御）
+- 35 个自动化测试覆盖核心路径（agents 26 + dashboard 4 + generator 5）
 
 ## 快速开始
 
@@ -32,6 +35,7 @@ data/outputs/{jobId}/
   listing-materials.json  - 上架材料（结构化）
   human-actions.md        - 人工操作指南
   qa-report.json          - 质量检查报告
+  pipeline.log            - Pipeline 运行日志
   generated/miniapp/      - 小程序项目代码
     dist/build/mp-weixin/ - 构建产物（可导入微信开发者工具）
 ```
@@ -40,7 +44,7 @@ data/outputs/{jobId}/
 
 ```bash
 cd agents
-pip install -e .
+pip install -e ".[dev]"
 python server.py
 ```
 
@@ -71,36 +75,99 @@ miniapp-factory/
   scripts/
     run_demo_pipeline.py    - MVP 演示流水线（核心入口）
   agents/
-    server.py               - FastAPI 后端
+    server.py               - FastAPI 后端（认证、WS、Pipeline 管理）
     config/settings.py      - 配置
-    shared/                 - 数据模型、LLM 封装
-    discovery/              - 发现 Agent
+    shared/                 - 数据模型、LLM 封装、数据库
+    discovery/              - 发现 Agent（去重、gap 检测）
     research/               - 分析 Agent
     coding/                 - 代码生成 Agent
-    qa/                     - 质检 Agent
+    qa/                     - 质检 Agent（src/ 路径校验）
     publisher/              - 上架 Agent
     review/                 - 复盘 Agent
     orchestrator/           - LangGraph 流水线
-  dashboard/                - Vue 3 前端
-  generator/                - Node.js 代码生成服务
+    tests/                  - pytest 测试套件（26 cases）
+  dashboard/                - Vue 3 前端（WS 实时推送）
+  generator/                - Node.js 代码生成服务（生产鉴权）
   data/
     samples/apps.json       - 候选 App 数据
     outputs/                - 每次运行的产物
 ```
 
-## 环境要求
+## Docker 部署（推荐）
+
+```bash
+cp .env.example .env
+# 编辑 .env，必须设置：
+#   DASHBOARD_API_KEY — API 认证密钥
+#   GENERATOR_API_KEY — Generator 服务认证密钥
+#   ANTHROPIC_API_KEY — LLM 调用密钥（可选，demo 模式不需要）
+docker compose up --build
+```
+
+三个服务自动编排：
+- API (FastAPI): http://localhost:8000
+- Generator (Node.js): http://localhost:3001
+- Dashboard (nginx): http://localhost:5173
+
+停止：`docker compose down`
+
+Docker 实测状态（2026-06-14）：
+- Dockerfile.api build 通过（Python 3.11 + Node.js 22）
+- Dockerfile.generator build 通过（node:22-slim multi-stage）
+- Dockerfile.dashboard build 通过（node:22-slim build + nginx:alpine runtime）
+- `docker compose up --build` 三容器全部 healthy
+- Dashboard healthcheck 使用 `127.0.0.1`（Alpine 兼容）
+- 端到端 pipeline run 通过：QA passed, build passed, dist/build/mp-weixin 存在
+- readiness=false 是业务原因（缺 AppID/截图/真机测试），非构建失败
+
+已知部署风险：
+- `VITE_API_TOKEN` 通过 build-arg 烘焙进前端 JS bundle。内部 MVP 可接受，对外生产应改为 runtime config（nginx 提供 `/config.json`）或后端 session 方案。
+- 更换 API key 需要重新 build dashboard 镜像。
+
+## 环境要求（本地开发）
 
 - Python 3.11+
 - Node.js 18+
 - npm
+- Docker（可选，用于容器化部署）
 
-## 当前限制
+## 运行测试
 
-- 候选 App 数据来自本地 JSON，未接真实 App Store API
-- 评分逻辑使用本地规则，未接 LLM
-- 代码生成使用模板骨架，未接 LLM 智能增强
-- 上架为人工操作，系统只生成材料和指南
-- 前端 Dashboard 展示真实 job 数据，但未做实时 WebSocket 推送
+```bash
+# 后端 (agents) — 26 cases
+cd agents
+pip install -e ".[dev]"
+pytest tests/ -q
+
+# 前端 (dashboard) — 4 cases
+cd dashboard
+npm test -- --run
+
+# Generator — 5 cases
+cd generator
+npm test -- --run
+```
+
+## 安全特性
+
+- API Key 认证（POST + 敏感 GET 路由）
+- WebSocket token 校验（query param）
+- 常量时间比较防 timing attack
+- 路径穿越防御
+- CORS 限定 origin
+- HTTP 安全头（X-Content-Type-Options, X-Frame-Options, Cache-Control）
+- 生产环境强制要求密钥配置
+- Graceful shutdown（SIGTERM 清理子进程）
+
+## 已知限制（设计取舍，非 Bug）
+
+- **单 worker + 全局状态** — 同时只能运行一个 Pipeline，不支持水平扩展
+- **JSON 文件数据库** — MVP 级别，并发写受 filelock 约束
+- **LLM Agent 无单元测试** — 需要 mock LLM 调用，属于下一阶段
+- **Vue 组件零测试** — 14 个组件无 render/interaction test
+- **run_demo_pipeline.py 2000 行** — 与 agents/ 逻辑有重复，重构需整体规划
+- **WebSocket token 在 query string** — 浏览器 WS API 限制，已文档化
+- **Scraper 使用搜狗/百度作为代理** — 准确率有限，短名称(≤3字符)跳过
 
 ## TODO
 
@@ -109,4 +176,7 @@ miniapp-factory/
 - [ ] LLM 驱动的代码增强（更智能的页面逻辑）
 - [ ] 审核结果回填 + 自动复盘迭代
 - [ ] miniprogram-ci 自动上传（替代手动上架）
-- [ ] 前端 WebSocket 实时日志推送
+- [ ] 任务队列替换子进程模型（支持并发 Pipeline）
+- [ ] SQLite/PostgreSQL 替换 JSON 文件数据库
+- [ ] Rate limiting
+- [ ] Vue 组件测试 + E2E 测试

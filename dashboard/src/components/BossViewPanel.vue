@@ -7,7 +7,14 @@ const props = defineProps<{ job: JobDetail | null }>()
 const opp = computed(() => props.job?.artifacts?.['opportunity-report.json'] || null)
 const readiness = computed(() => props.job?.artifacts?.['submission-readiness-report.json'] || null)
 const qa = computed(() => props.job?.artifacts?.['qa-report.json'] || null)
-const submitStatus = computed(() => props.job?.artifacts?.['submit-status.json'] || null)
+
+// Support both the new (ready_to_submit) and legacy (is_ready_to_submit) shapes.
+const isReady = computed(() =>
+  readiness.value ? !!(readiness.value.ready_to_submit ?? readiness.value.is_ready_to_submit) : false
+)
+const blockingIssues = computed<string[]>(() => readiness.value?.blocking_issues || [])
+const warningIssues = computed<string[]>(() => readiness.value?.warning_issues || [])
+const humanActions = computed<string[]>(() => readiness.value?.human_actions || [])
 </script>
 
 <template>
@@ -43,25 +50,31 @@ const submitStatus = computed(() => props.job?.artifacts?.['submit-status.json']
       <!-- Readiness -->
       <div v-if="readiness" class="readiness-section">
         <h4>提交审核状态</h4>
-        <div class="ready-badge" :class="readiness.is_ready_to_submit ? 'ready-yes' : 'ready-no'">
-          {{ readiness.is_ready_to_submit ? '可以提交审核' : '尚未就绪' }}
+        <div class="ready-badge" :class="isReady ? 'ready-yes' : 'ready-no'">
+          {{ isReady ? '✓ 可以提交审核' : '✗ 当前不能提交审核' }}
         </div>
-        <div v-if="readiness.warning_issues?.length" class="warnings">
-          <span v-for="w in readiness.warning_issues" :key="w" class="warn-item">{{ w }}</span>
+        <div v-if="!isReady && blockingIssues.length" class="blockings">
+          <div class="block-heading">阻塞原因（必须先解决）</div>
+          <div v-for="b in blockingIssues" :key="b" class="block-item">• {{ b }}</div>
         </div>
-        <div v-if="readiness.blocking_issues?.length" class="blockings">
-          <span v-for="b in readiness.blocking_issues" :key="b" class="block-item">{{ b }}</span>
+        <div v-if="warningIssues.length" class="warnings">
+          <div class="warn-heading">提示</div>
+          <span v-for="w in warningIssues" :key="w" class="warn-item">• {{ w }}</span>
+        </div>
+        <div v-if="humanActions.length" class="human-actions">
+          <div class="human-heading">需要人工完成</div>
+          <div v-for="h in humanActions" :key="h" class="human-item">→ {{ h }}</div>
         </div>
       </div>
       <div v-else class="no-data">暂无提交审核数据</div>
 
       <!-- Platforms -->
       <div v-if="readiness?.target_platforms?.length" class="platforms-section">
-        <h4>推荐平台</h4>
+        <h4>目标平台</h4>
         <span v-for="p in readiness.target_platforms" :key="p" class="platform-chip">{{ p }}</span>
       </div>
       <div v-if="readiness?.rejected_platforms?.length" class="platforms-section">
-        <h4>不推荐平台</h4>
+        <h4>不可提交平台</h4>
         <div v-for="r in readiness.rejected_platforms" :key="r.platform" class="rejected-item">{{ r.platform }}: {{ r.reason }}</div>
       </div>
 
@@ -101,9 +114,15 @@ const submitStatus = computed(() => props.job?.artifacts?.['submit-status.json']
 .ready-yes { background: var(--color-green-subtle); color: #166534; }
 .ready-no { background: rgba(255,59,48,0.08); color: #991b1b; }
 .warnings { margin-top: 8px; }
+.warn-heading, .block-heading, .human-heading { font-size: 11px; font-weight: 700; text-transform: uppercase; margin: 8px 0 4px; }
+.warn-heading { color: #92400e; }
+.block-heading { color: #991b1b; }
+.human-heading { color: var(--color-text-2); }
 .warn-item { display: block; font-size: 12px; color: #92400e; padding: 2px 0; }
-.blockings { margin-top: 8px; }
-.block-item { display: block; font-size: 12px; color: #991b1b; padding: 2px 0; }
+.blockings { margin-top: 8px; padding: 10px 12px; background: rgba(255,59,48,0.06); border-radius: var(--radius-sm); }
+.block-item { display: block; font-size: 13px; color: #991b1b; padding: 2px 0; font-weight: 500; }
+.human-actions { margin-top: 8px; }
+.human-item { display: block; font-size: 12px; color: var(--color-text-2); padding: 2px 0; }
 .platforms-section { margin-bottom: 16px; }
 .platforms-section h4 { font-size: 13px; font-weight: 600; color: var(--color-text-2); margin-bottom: 6px; }
 .platform-chip { font-size: 12px; padding: 3px 8px; background: var(--color-blue-subtle); color: var(--color-blue); border-radius: 4px; margin-right: 4px; }

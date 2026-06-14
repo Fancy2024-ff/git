@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { JobDetail } from '../types/job'
+import type { JobDetail, PipelineStep } from '../types/job'
 
 const props = defineProps<{ job: JobDetail }>()
 
 const pipelineReport = computed(() => props.job.artifacts?.['pipeline-report.json'] || null)
-const steps = computed(() => pipelineReport.value?.steps || [])
+const steps = computed<PipelineStep[]>(() => pipelineReport.value?.steps || [])
 
 function statusClass(status: string) {
   if (status === 'passed') return 'node--passed'
@@ -43,7 +43,7 @@ function statusLabel(status: string) {
             <span class="node-agent">{{ step.agent }}</span>
             <span class="node-status" :class="statusClass(step.status)">{{ statusLabel(step.status) }}</span>
             <span v-if="step.artifact" class="node-artifact">{{ step.artifact }}</span>
-            <span v-if="step.error" class="node-error">{{ step.error }}</span>
+            <span v-if="step.status === 'failed'" class="node-error">{{ step.user_message || step.error }}</span>
           </div>
         </div>
       </div>
@@ -52,7 +52,14 @@ function statusLabel(status: string) {
     <div v-if="pipelineReport" class="pipeline-meta">
       <span>Mode: {{ pipelineReport.mode }}</span>
       <span>Data: {{ pipelineReport.data_source }}</span>
-      <span v-if="pipelineReport.total_passed !== undefined">Result: {{ pipelineReport.total_passed ? 'Passed' : 'Failed' }}</span>
+      <span v-if="pipelineReport.total_passed !== null && pipelineReport.total_passed !== undefined">
+        Result: {{ pipelineReport.total_passed ? 'Passed' : 'Failed' }}
+      </span>
+      <span v-else-if="pipelineReport.finished_at">Result: Finished</span>
+      <span v-else>Result: Running</span>
+    </div>
+    <div v-if="pipelineReport?.error" class="pipeline-error">
+      失败原因: {{ pipelineReport.error }}
     </div>
   </div>
 </template>
@@ -92,6 +99,7 @@ function statusLabel(status: string) {
 .node-error { font-size: 9px; color: var(--color-red); max-width: 90px; }
 
 .pipeline-meta { display: flex; gap: 16px; justify-content: center; font-size: 11px; color: var(--color-text-3); }
+.pipeline-error { text-align: center; font-size: 12px; color: var(--color-red); margin-top: 8px; }
 
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 </style>
