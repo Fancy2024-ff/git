@@ -33,7 +33,8 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 OUTPUTS_DIR = DATA_DIR / "outputs"
 PLATFORMS_DIR = DATA_DIR / "platforms"
 PLATFORM_AUTH_DIR = DATA_DIR / "platform-auth"
-REAL_INPUTS_DIR = DATA_DIR / "real_inputs"
+REAL_INPUTS_DIR = DATA_DIR / "inputs" / "real"
+LEGACY_REAL_INPUTS_DIR = DATA_DIR / "real_inputs"
 
 # ---------------------------------------------------------------------------
 # Auth + environment
@@ -591,8 +592,10 @@ def wechat_upload():
 
 @app.get("/api/real-inputs/apps", dependencies=[Depends(verify_api_key)])
 def get_real_inputs():
-    """Get imported real app list."""
+    """Get imported real app list. New path first, legacy fallback."""
     apps_file = REAL_INPUTS_DIR / "apps.json"
+    if not apps_file.exists():
+        apps_file = LEGACY_REAL_INPUTS_DIR / "apps.json"
     if not apps_file.exists():
         return {"apps": [], "exists": False}
     apps = _read_json(apps_file)

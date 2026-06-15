@@ -11,6 +11,8 @@ venv/
 
 # Node.js
 node_modules/
+core/generator/dist/
+apps/web/dist/
 generator/dist/
 dashboard/dist/
 

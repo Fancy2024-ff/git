@@ -26,8 +26,12 @@ if sys.platform == "win32":
 # This file lives at core/pipeline/runner.py → parent.parent.parent = repo root
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
-SAMPLES_DIR = DATA_DIR / "samples"
-REAL_INPUTS_DIR = DATA_DIR / "real_inputs"
+# New structure: data/inputs/demo + data/inputs/real
+# Legacy fallback: data/samples + data/real_inputs (kept for compatibility)
+SAMPLES_DIR = DATA_DIR / "inputs" / "demo"
+REAL_INPUTS_DIR = DATA_DIR / "inputs" / "real"
+LEGACY_SAMPLES_DIR = DATA_DIR / "samples"
+LEGACY_REAL_INPUTS_DIR = DATA_DIR / "real_inputs"
 OUTPUTS_DIR = DATA_DIR / "outputs"
 
 
@@ -186,14 +190,20 @@ def market_input_agent(mode: str = "demo") -> list[dict]:
     if mode == "live":
         return _fetch_live_apps()
     elif mode == "real":
+        # New path first, fall back to legacy data/real_inputs
         apps_file = REAL_INPUTS_DIR / "apps.json"
         if not apps_file.exists():
+            apps_file = LEGACY_REAL_INPUTS_DIR / "apps.json"
+        if not apps_file.exists():
             raise FileNotFoundError(
-                f"data/real_inputs/apps.json not found\n"
-                f"请先导入真实 App 数据，参考模板: data/real_inputs/apps.example.json"
+                "data/inputs/real/apps.json not found\n"
+                "请先导入真实 App 数据，参考模板: data/inputs/real/apps.example.json"
             )
     else:
+        # New path first, fall back to legacy data/samples
         apps_file = SAMPLES_DIR / "apps.json"
+        if not apps_file.exists():
+            apps_file = LEGACY_SAMPLES_DIR / "apps.json"
         if not apps_file.exists():
             raise FileNotFoundError(f"样本数据不存在: {apps_file}")
     apps = json.loads(apps_file.read_text(encoding="utf-8-sig"))
@@ -1830,7 +1840,7 @@ def _run_pipeline_steps(mode: str, job_id: str, output_dir: Path) -> dict:
     for a in apps:
         p(f"    • {a['name_cn']} ({a['name']}) - {a['downloads']:,} 下载")
     step_end(artifact="candidate.json")
-    step_done("data/samples/apps.json", time.time() - t0)
+    step_done("data/inputs/{mode}/apps.json", time.time() - t0)
 
     # === Step 2: Select best candidate ===
     step_header(2, "选择最优候选", "DemandAnalysisAgent")
