@@ -11,19 +11,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     npm install -g wrangler && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies from pyproject.toml
+# Install Python dependencies (config/settings + shared still under agents/)
 COPY agents/pyproject.toml agents/
-
-# Copy full source (hatchling needs packages present to resolve)
 COPY agents/ agents/
 RUN pip install --no-cache-dir agents/
 
+# Application code (new structure)
+COPY apps/ apps/
+COPY core/ core/
 COPY scripts/ scripts/
-COPY data/samples/ data/samples/
+COPY data/inputs/ data/inputs/
 COPY data/platforms/ data/platforms/
 
 # Ensure runtime directories exist
-RUN mkdir -p data/outputs data/real_inputs data/platform-auth
+RUN mkdir -p data/outputs data/inputs/real data/platform-auth
 
 ENV APP_ENV=production
 ENV API_HOST=0.0.0.0
@@ -35,4 +36,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/api/pipeline/status || exit 1
 
-CMD ["python", "agents/server.py"]
+# New entrypoint: apps/api/main.py
+CMD ["python", "apps/api/main.py"]
