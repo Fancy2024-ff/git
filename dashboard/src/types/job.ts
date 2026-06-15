@@ -26,7 +26,7 @@ export interface PipelineStep {
   user_message?: string
 }
 
-export type PipelineMode = 'demo' | 'real'
+export type PipelineMode = 'demo' | 'real' | 'live'
 
 export interface DemoResult {
   success: boolean

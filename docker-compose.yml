@@ -23,6 +23,14 @@ services:
       - NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}
       - QA_INSTALL_TIMEOUT=${QA_INSTALL_TIMEOUT:-600}
       - QA_BUILD_TIMEOUT=${QA_BUILD_TIMEOUT:-600}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_BOT_USERNAME=${TELEGRAM_BOT_USERNAME:-}
+      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
+      - CLOUDFLARE_PROJECT_NAME=${CLOUDFLARE_PROJECT_NAME:-miniforge-app}
+      - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-}
+      - WEBAPP_LLM_BASE_URL=${WEBAPP_LLM_BASE_URL:-https://api.deepseek.com}
+      - WEBAPP_LLM_API_KEY=${WEBAPP_LLM_API_KEY:-}
+      - WEBAPP_LLM_MODEL=${WEBAPP_LLM_MODEL:-deepseek-chat}
     volumes:
       - ./data/outputs:/app/data/outputs
       - ./data/real_inputs:/app/data/real_inputs

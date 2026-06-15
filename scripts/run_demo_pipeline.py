@@ -183,8 +183,10 @@ def _normalize_app(app: dict) -> dict:
 
 
 def market_input_agent(mode: str = "demo") -> list[dict]:
-    """读取 App 数据。demo 模式用样例，real 模式用真实导入数据。"""
-    if mode == "real":
+    """读取 App 数据。demo=样例, real=导入数据, live=实时抓取 App Store + Google Play。"""
+    if mode == "live":
+        return _fetch_live_apps()
+    elif mode == "real":
         apps_file = REAL_INPUTS_DIR / "apps.json"
         if not apps_file.exists():
             raise FileNotFoundError(
@@ -199,6 +201,54 @@ def market_input_agent(mode: str = "demo") -> list[dict]:
     if not isinstance(apps, list) or not apps:
         raise ValueError(f"{apps_file} 必须是非空的 JSON 数组")
     return [_normalize_app(a) for a in apps]
+
+
+def _fetch_live_apps() -> list[dict]:
+    """实时从 App Store + Google Play 抓取 AI 类 App。"""
+    import sys as _sys
+    _sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+    from discovery.scrapers.appstore import fetch_ai_apps_appstore
+    from discovery.scrapers.googleplay import fetch_ai_apps_googleplay
+
+    print("  [Live] 正在从 App Store 抓取...")
+    appstore_apps = fetch_ai_apps_appstore(category="ai", limit=20)
+    print(f"  [Live] App Store: 获取 {len(appstore_apps)} 个 App")
+
+    print("  [Live] 正在从 Google Play 抓取...")
+    gp_apps = fetch_ai_apps_googleplay(category="ai", limit=20)
+    print(f"  [Live] Google Play: 获取 {len(gp_apps)} 个 App")
+
+    # Merge and dedup
+    seen = set()
+    all_apps = []
+    for app in appstore_apps + gp_apps:
+        name_lower = app.name.lower()
+        if name_lower in seen:
+            continue
+        seen.add(name_lower)
+        all_apps.append({
+            "name": app.name,
+            "name_cn": app.name,  # Will be translated by LLM later
+            "app_id": app.app_id,
+            "source": app.source.value if hasattr(app.source, 'value') else str(app.source),
+            "category": app.category,
+            "description": app.description[:300],
+            "description_cn": app.description[:300],
+            "downloads": app.downloads,
+            "rating": app.rating,
+            "review_count": 0,
+            "features": app.features if hasattr(app, 'features') else [],
+            "monetization": "freemium",
+        })
+
+    # Sort by downloads, take top 10
+    all_apps.sort(key=lambda a: a.get("downloads", 0), reverse=True)
+    top_apps = all_apps[:10]
+    print(f"  [Live] 合并去重后 Top 10:")
+    for a in top_apps:
+        print(f"    {a['name']} | {a['downloads']:,} downloads | {a['rating']:.1f}⭐")
+
+    return [_normalize_app(a) for a in top_apps]
 
 
 def demand_analysis_agent(app: dict) -> dict:
@@ -1528,6 +1578,7 @@ def _platform_auth_status(plat: str) -> tuple[bool, list[str]]:
         "wechat": ["appid", "private_key_path"],
         "alipay": ["appid"],
         "douyin": ["appid"],
+        "telegram": ["bot_token"],
     }.get(plat, ["appid"])
     cf = DATA_DIR / "platform-auth" / f"{plat}.json"
     if not cf.exists():
@@ -1709,7 +1760,7 @@ def _write(path: Path, content: str):
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["demo", "real"], default="demo", help="demo: sample data, real: imported data")
+    parser.add_argument("--mode", choices=["demo", "real", "live"], default="demo", help="demo: sample data, real: imported data, live: scrape App Store + Google Play")
     parser.add_argument("--job-id", default=None, help="Pre-assigned job ID (from server)")
     args = parser.parse_args()
     mode = args.mode
@@ -1985,6 +2036,40 @@ def _run_pipeline_steps(mode: str, job_id: str, output_dir: Path) -> dict:
     step_end(artifact="submission-readiness-report.json")
     step_done(f"data/outputs/{job_id}/submission-readiness-report.json", time.time() - t0)
 
+    # === Step 12: Telegram 自动部署 ===
+    tg_deploy_result = None
+    if "telegram" in opportunity.get("target_platforms", []):
+        _tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        _cf_token = os.getenv("CLOUDFLARE_API_TOKEN", "")
+        if _tg_token and _cf_token:
+            step_header(12, "Telegram 自动部署", "TelegramDeployAgent")
+            step_start("telegram_deploy", "Telegram 部署", "TelegramDeployAgent")
+            t0 = time.time()
+            try:
+                from deploy_telegram import deploy_telegram
+                tg_deploy_result = deploy_telegram(job_id, output_dir, best_app, opportunity)
+                _write(output_dir / "telegram-deploy.json",
+                       json.dumps(tg_deploy_result, ensure_ascii=False, indent=2))
+                if tg_deploy_result.get("status") == "deployed":
+                    p(f"  ✅ Telegram 部署成功!")
+                    p(f"  URL: {tg_deploy_result.get('webapp_url', '')}")
+                    p(f"  Bot: {tg_deploy_result.get('bot_link', '')}")
+                    step_end(artifact="telegram-deploy.json")
+                else:
+                    p(f"  ⚠️ 部署状态: {tg_deploy_result.get('status', 'unknown')}")
+                    p(f"  原因: {tg_deploy_result.get('reason', tg_deploy_result.get('error', ''))}")
+                    step_end(artifact="telegram-deploy.json",
+                             error=tg_deploy_result.get("error", "deploy issue"))
+            except Exception as e:
+                p(f"  ❌ Telegram 部署失败: {e}")
+                tg_deploy_result = {"status": "error", "error": str(e)}
+                _write(output_dir / "telegram-deploy.json",
+                       json.dumps(tg_deploy_result, ensure_ascii=False, indent=2))
+                step_end(artifact="telegram-deploy.json", error=str(e))
+            step_done(f"data/outputs/{job_id}/telegram-deploy.json", time.time() - t0)
+        else:
+            p(f"\n  [Telegram] 跳过自动部署（未配置 TELEGRAM_BOT_TOKEN 或 CLOUDFLARE_API_TOKEN）")
+
     # === SUMMARY ===
     p("\n" + "=" * 60)
     p("  ✓ Pipeline 完成")
@@ -2004,10 +2089,15 @@ def _run_pipeline_steps(mode: str, job_id: str, output_dir: Path) -> dict:
     p(f"\n{'─' * 60}")
     p(f"  ⚡ 下一步人工动作:")
     p(f"{'─' * 60}")
-    p(f"  1. 阅读 prd.md 确认产品方案")
-    p(f"  2. 阅读 human-actions.md 了解上架步骤")
-    p(f"  3. 使用微信开发者工具导入 generated/miniapp/")
-    p(f"  4. 上传代码并提交审核")
+    if tg_deploy_result and tg_deploy_result.get("status") == "deployed":
+        p(f"  ✅ Telegram 已自动上线: {tg_deploy_result.get('bot_link', '')}")
+        p(f"  1. 阅读 prd.md 确认产品方案")
+        p(f"  2. 微信/支付宝/抖音如需上架，阅读 human-actions.md")
+    else:
+        p(f"  1. 阅读 prd.md 确认产品方案")
+        p(f"  2. 阅读 human-actions.md 了解上架步骤")
+        p(f"  3. 使用微信开发者工具导入 generated/miniapp/")
+        p(f"  4. 上传代码并提交审核")
     p(f"  5. 审核通过后发布上线")
     p(f"\n  详细指南: {output_dir / 'human-actions.md'}")
     p("")

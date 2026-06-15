@@ -22,6 +22,7 @@ from shared.models import (
 from shared.llm import get_llm
 from shared.database import list_projects
 from discovery.scrapers.appstore import fetch_ai_apps_appstore
+from discovery.scrapers.googleplay import fetch_ai_apps_googleplay
 from discovery.scrapers.miniprogram import search_miniprogram
 from discovery.analyzer import evaluate_opportunity, filter_opportunities
 
@@ -43,6 +44,14 @@ def run_discovery(
 
     # Step 1: Fetch AI apps from app stores
     apps = fetch_ai_apps_appstore(category=category, limit=limit)
+
+    # Also fetch from Google Play and merge
+    gp_apps = fetch_ai_apps_googleplay(category=category, limit=limit)
+    seen_names = {a.name.lower() for a in apps}
+    for gp_app in gp_apps:
+        if gp_app.name.lower() not in seen_names:
+            apps.append(gp_app)
+            seen_names.add(gp_app.name.lower())
 
     if not apps:
         print("[Discovery] No apps fetched, using LLM to suggest known AI apps")

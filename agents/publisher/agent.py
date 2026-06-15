@@ -221,7 +221,43 @@ def _submit_douyin(project: MiniAppProject, metadata: dict) -> dict:
 
 
 def _submit_telegram(project: MiniAppProject, metadata: dict) -> dict:
-    """Telegram Mini App submission."""
+    """Telegram Mini App submission — auto-deploy when configured."""
+    from config.settings import TELEGRAM_BOT_TOKEN, CLOUDFLARE_API_TOKEN
+
+    if TELEGRAM_BOT_TOKEN and CLOUDFLARE_API_TOKEN:
+        # Auto-deploy available
+        try:
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+            from deploy_telegram import deploy_telegram
+
+            app_info = {
+                "name_cn": project.app_name,
+                "name": project.app_name,
+                "description_cn": metadata.get("full_description", ""),
+            }
+            output_dir = Path(project.project_path).parent if project.project_path else None
+
+            if output_dir and output_dir.exists():
+                result = deploy_telegram(
+                    job_id=project.id or "manual",
+                    output_dir=output_dir,
+                    app_info=app_info,
+                    opportunity={"target_platforms": ["telegram"]},
+                )
+                return {
+                    "platform": "telegram",
+                    "status": result.get("status", "unknown"),
+                    "webapp_url": result.get("webapp_url", ""),
+                    "bot_link": result.get("bot_link", ""),
+                    "metadata": metadata,
+                    "automation_ready": True,
+                    "automated": True,
+                }
+        except Exception as e:
+            print(f"[Publisher] Telegram auto-deploy failed: {e}")
+
+    # Fallback to manual instructions
     return {
         "platform": "telegram",
         "status": "ready_for_manual_submission",

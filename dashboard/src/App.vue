@@ -26,7 +26,7 @@ const logs = ref<string[]>([])
 const activeTab = ref('overview')
 const error = ref('')
 const wsStatus = ref('')
-const mode = ref<PipelineMode>('demo')
+const mode = ref<PipelineMode>('live')
 
 function setMode(value: PipelineMode) { mode.value = value }
 
@@ -40,10 +40,7 @@ const tabs = [
   { id: 'listing', label: '上架材料' },
   { id: 'actions', label: '提交中心' },
   { id: 'files', label: '产物文件' },
-  { id: 'platforms', label: '平台库' },
   { id: 'logs', label: '日志' },
-  { id: 'boss', label: '演示' },
-  { id: 'import', label: '导入' },
 ]
 
 async function loadJobs() {

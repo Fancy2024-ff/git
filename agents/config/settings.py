@@ -16,6 +16,7 @@ REPORTS_DIR = DATA_DIR / "reports"
 
 # LLM
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "claude-sonnet-4-6")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.3"))
 
@@ -25,6 +26,18 @@ SENSORTOWER_API_KEY = os.getenv("SENSORTOWER_API_KEY", "")
 
 # Generator service
 GENERATOR_URL = os.getenv("GENERATOR_URL", "http://localhost:3100")
+
+# Telegram auto-deploy
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "")
+CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "")
+CLOUDFLARE_PROJECT_NAME = os.getenv("CLOUDFLARE_PROJECT_NAME", "miniforge-app")
+CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
+
+# WebApp frontend LLM (used by deployed mini-app)
+WEBAPP_LLM_BASE_URL = os.getenv("WEBAPP_LLM_BASE_URL", "https://api.deepseek.com")
+WEBAPP_LLM_API_KEY = os.getenv("WEBAPP_LLM_API_KEY", "")
+WEBAPP_LLM_MODEL = os.getenv("WEBAPP_LLM_MODEL", "deepseek-chat")
 
 # Mini-program platforms
 WECHAT_APPID = os.getenv("WECHAT_APPID", "")

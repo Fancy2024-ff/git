@@ -144,7 +144,7 @@ async def _broadcast(msg: dict, job_id: str = None):
 # ---------------------------------------------------------------------------
 
 class PipelineStartRequest(BaseModel):
-    mode: Literal["demo", "real"] = "demo"
+    mode: Literal["demo", "real", "live"] = "demo"
 
 
 class RealAppInput(BaseModel):
