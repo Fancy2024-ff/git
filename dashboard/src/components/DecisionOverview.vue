@@ -15,7 +15,7 @@ const pipelineReport = computed(() => {
 })
 
 const submissionReadiness = computed(() => {
-  return props.job?.artifacts?.['submission-readiness.json'] || null
+  return props.job?.artifacts?.['submission-readiness-report.json'] || null
 })
 
 const qaReport = computed(() => {
@@ -56,7 +56,7 @@ const nextActions = computed(() => {
       <h3 class="card-title">机会评分</h3>
       <div v-if="opportunity" class="card-body">
         <div class="score-row">
-          <span class="score-number">{{ opportunity.score ?? opportunity.overall_score ?? '--' }}</span>
+          <span class="score-number">{{ opportunity.total_score ?? opportunity.opportunity_score ?? opportunity.score ?? '--' }}</span>
           <span class="score-max">/ 100</span>
           <span
             class="score-badge"
@@ -99,7 +99,7 @@ const nextActions = computed(() => {
           {{ completionItems.filter((i: any) => i.done).length }} / {{ completionItems.length }} 步骤完成
         </div>
       </div>
-      <div v-else class="card-empty">暂无数据</div>
+      <div v-else class="card-empty">该任务未生成流水线报告</div>
     </div>
 
     <!-- Card 3: Submission Readiness -->
@@ -107,18 +107,18 @@ const nextActions = computed(() => {
       <h3 class="card-title">提交就绪度</h3>
       <div v-if="submissionReadiness" class="card-body">
         <div class="ready-status">
-          <span class="ready-dot" :class="submissionReadiness.is_ready ? 'dot--green' : 'dot--orange'"></span>
-          <span class="ready-text">{{ submissionReadiness.is_ready ? '就绪，可以提交' : '尚未就绪' }}</span>
+          <span class="ready-dot" :class="(submissionReadiness.is_ready_to_submit || submissionReadiness.is_ready) ? 'dot--green' : 'dot--orange'"></span>
+          <span class="ready-text">{{ (submissionReadiness.is_ready_to_submit || submissionReadiness.is_ready) ? '就绪，可以提交' : '尚未就绪' }}</span>
         </div>
-        <div v-if="submissionReadiness.blocking?.length" class="block-list">
+        <div v-if="(submissionReadiness.blocking_issues || submissionReadiness.blocking)?.length" class="block-list">
           <h4 class="sub-heading">阻塞项</h4>
-          <div v-for="(b, i) in submissionReadiness.blocking" :key="i" class="block-item block-item--red">
+          <div v-for="(b, i) in (submissionReadiness.blocking_issues || submissionReadiness.blocking || [])" :key="i" class="block-item block-item--red">
             {{ b }}
           </div>
         </div>
-        <div v-if="submissionReadiness.warnings?.length" class="block-list">
+        <div v-if="(submissionReadiness.warning_issues || submissionReadiness.warnings)?.length" class="block-list">
           <h4 class="sub-heading">警告</h4>
-          <div v-for="(w, i) in submissionReadiness.warnings" :key="i" class="block-item block-item--orange">
+          <div v-for="(w, i) in (submissionReadiness.warning_issues || submissionReadiness.warnings || [])" :key="i" class="block-item block-item--orange">
             {{ w }}
           </div>
         </div>

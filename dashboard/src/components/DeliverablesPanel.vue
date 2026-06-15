@@ -14,10 +14,11 @@ interface DeliverableItem {
 
 const PRODUCT_DELIVERABLES: DeliverableItem[] = [
   { key: 'candidate.json', name: '候选应用', purpose: '筛选出的目标应用信息' },
-  { key: 'market-analysis.json', name: '市场分析', purpose: '市场机会和竞争分析报告' },
-  { key: 'gap-check.json', name: '差距检查', purpose: '平台要求差距分析' },
+  { key: 'analysis.json', name: '需求分析', purpose: '需求强度评分和市场验证' },
+  { key: 'gap-check.json', name: '平台缺口', purpose: '小程序平台覆盖情况' },
   { key: 'opportunity-report.json', name: '机会评估', purpose: '综合机会评分和推荐' },
   { key: 'prd.json', name: '产品需求文档', purpose: '小程序 PRD 规格书' },
+  { key: 'prd.md', name: 'PRD 可读版', purpose: '产品需求文档 Markdown 版' },
 ]
 
 const ENGINEERING_DELIVERABLES: DeliverableItem[] = [
@@ -25,19 +26,23 @@ const ENGINEERING_DELIVERABLES: DeliverableItem[] = [
   { key: 'dist', name: '构建产物', purpose: '编译后的可部署包' },
   { key: 'qa-report.json', name: 'QA 报告', purpose: '质量检查和合规验证结果' },
   { key: 'pipeline-report.json', name: '流水线报告', purpose: '完整的执行步骤和状态' },
+  { key: 'generator-source.json', name: '代码来源', purpose: '代码生成模板来源记录' },
 ]
 
 const LISTING_DELIVERABLES: DeliverableItem[] = [
-  { key: 'listing-materials.json', name: '上架材料', purpose: '平台提交所需的描述、截图等' },
-  { key: 'publish-package.json', name: '发布包', purpose: '打包后的提交文件' },
-  { key: 'human-actions.json', name: '人工操作清单', purpose: '需要人工完成的步骤列表' },
-  { key: 'submission-readiness.json', name: '提交就绪度', purpose: '是否满足提交条件的检查' },
+  { key: 'listing-materials.md', name: '上架材料', purpose: '平台提交所需的描述和文案' },
+  { key: 'listing-materials.json', name: '上架材料(结构化)', purpose: '结构化上架数据' },
+  { key: 'publish-package', name: '发布包', purpose: '多平台提交目录' },
+  { key: 'human-actions.md', name: '人工操作清单', purpose: '需要人工完成的步骤' },
+  { key: 'submission-readiness-report.json', name: '提交就绪度', purpose: '是否满足提交条件' },
+  { key: 'submit-status.json', name: '提交状态', purpose: '各平台提交流转状态' },
 ]
 
 function hasArtifact(key: string): boolean {
   if (!props.job?.artifacts) return false
   if (key === 'miniapp') return !!props.job.miniapp_path
-  if (key === 'dist') return !!(props.job.artifacts['build-result.json']?.success)
+  if (key === 'dist') return !!(props.job.artifacts?.['qa-report.json']?.checks?.dist_exists)
+  if (key === 'publish-package') return !!props.job.artifacts?.['submit-status.json']
   return !!props.job.artifacts[key]
 }
 

@@ -47,8 +47,17 @@ const totalCount = computed(() => {
 })
 
 const selectedStep = computed(() => {
-  if (!props.selectedAgentId) return steps.value[0] || null
-  return steps.value.find(s => s.agent === props.selectedAgentId) || steps.value[0] || null
+  // Priority: explicit selection → failed → running → last step
+  if (props.selectedAgentId) {
+    const found = steps.value.find(s => s.step === props.selectedAgentId || s.agent === props.selectedAgentId)
+    if (found) return found
+  }
+  const failed = steps.value.find(s => s.status === 'failed')
+  if (failed) return failed
+  const running = steps.value.find(s => s.status === 'running')
+  if (running) return running
+  if (steps.value.length > 0) return steps.value[steps.value.length - 1]
+  return null
 })
 
 const appName = computed(() => {
@@ -58,6 +67,30 @@ const appName = computed(() => {
 
 const jobMode = computed(() => {
   return pipelineReport.value?.mode || ''
+})
+
+const statusSummary = computed(() => {
+  if (!props.job) return '等待启动任务'
+  const readiness = props.job.artifacts?.['submission-readiness-report.json']
+  const qa = props.job.artifacts?.['qa-report.json']
+  const failed = steps.value.find(s => s.status === 'failed')
+  if (props.running && currentStep.value) {
+    return `系统正在执行 ${currentStep.value.agent}：${currentStep.value.name || '处理中'}。`
+  }
+  if (failed) {
+    return `任务失败：${failed.agent} ${failed.error || '执行未通过'}，请查看失败原因。`
+  }
+  if (qa?.passed && readiness?.is_ready_to_submit) {
+    return '任务已完成，当前已满足提交条件，可以进入提交中心。'
+  }
+  if (qa?.passed) {
+    const blocking = readiness?.blocking_issues?.length || 0
+    return `任务已完成，但暂不可提交：${blocking} 项阻塞（缺少平台授权或配置）。`
+  }
+  if (completedCount.value === totalCount.value) {
+    return '所有 Agent 已执行完成。'
+  }
+  return '等待启动任务'
 })
 </script>
 
@@ -91,6 +124,9 @@ const jobMode = computed(() => {
       </div>
     </div>
 
+    <!-- Summary sentence -->
+    <div class="summary-sentence" v-if="statusSummary !== '等待启动任务'">{{ statusSummary }}</div>
+
     <!-- Main content area -->
     <div class="console-body">
       <div class="timeline-col">
@@ -117,6 +153,15 @@ const jobMode = computed(() => {
 <style scoped>
 .factory-console {
   animation: fadeIn 0.3s var(--ease-apple);
+}
+
+.summary-sentence {
+  font-size: 13px;
+  color: var(--color-text-2);
+  padding: 8px 16px;
+  background: var(--color-blue-subtle);
+  border-radius: var(--radius-sm);
+  margin-bottom: 16px;
 }
 
 .status-bar {
