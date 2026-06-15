@@ -45,8 +45,6 @@ def step_done(output_path: str, duration: float):
     p(f"  ✓ 完成 │ {duration:.1f}s │ {output_path}")
 
 
-def step_fail(reason: str):
-    p(f"  ✗ 失败 │ {reason}")
 
 
 # Pipeline report state (written incrementally)
@@ -2046,6 +2044,7 @@ def _run_pipeline_steps(mode: str, job_id: str, output_dir: Path) -> dict:
             step_start("telegram_deploy", "Telegram 部署", "TelegramDeployAgent")
             t0 = time.time()
             try:
+                sys.path.insert(0, str(Path(__file__).parent))
                 from deploy_telegram import deploy_telegram
                 tg_deploy_result = deploy_telegram(job_id, output_dir, best_app, opportunity)
                 _write(output_dir / "telegram-deploy.json",

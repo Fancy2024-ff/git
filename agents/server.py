@@ -1,4 +1,4 @@
-"""
+﻿"""
 MiniApp Factory – FastAPI backend (production).
 Zero duplicate routes. Each path+method defined exactly once.
 """
@@ -498,7 +498,7 @@ def get_job_artifact(job_id: str, file: str):
 # SECTION: Platforms
 # ---------------------------------------------------------------------------
 
-@app.get("/api/platforms")
+@app.get("/api/platforms", dependencies=[Depends(verify_api_key)])
 def get_platforms():
     """Read platform registry."""
     reg_file = PLATFORMS_DIR / "platform-registry.json"
@@ -512,7 +512,7 @@ def get_platforms():
 # SECTION: Platform Auth
 # ---------------------------------------------------------------------------
 
-@app.get("/api/platform-auth/status")
+@app.get("/api/platform-auth/status", dependencies=[Depends(verify_api_key)])
 def get_platform_auth_status():
     """Check auth config status for each platform (never exposes secrets)."""
     platform_configs = {
@@ -584,7 +584,7 @@ def wechat_upload():
 # SECTION: Real Inputs
 # ---------------------------------------------------------------------------
 
-@app.get("/api/real-inputs/apps")
+@app.get("/api/real-inputs/apps", dependencies=[Depends(verify_api_key)])
 def get_real_inputs():
     """Get imported real app list."""
     apps_file = REAL_INPUTS_DIR / "apps.json"
@@ -641,7 +641,7 @@ async def save_real_inputs(request: Request):
 # SECTION: Overview
 # ---------------------------------------------------------------------------
 
-@app.get("/api/overview")
+@app.get("/api/overview", dependencies=[Depends(verify_api_key)])
 def get_overview():
     """Dashboard stats."""
     # Count jobs

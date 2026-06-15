@@ -16,6 +16,9 @@ dashboard/dist/
 
 # Environment
 .env
+agents/.env
+*.local.env
+.env.local
 
 # Platform auth (real keys, never commit)
 data/platform-auth/*.json
