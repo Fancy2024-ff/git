@@ -599,7 +599,7 @@ def codegen_agent(app: dict, prd_json: dict, output_dir: Path) -> tuple[Path, di
     import shutil
 
     miniapp_dir = output_dir / "miniapp"
-    templates_dir = PROJECT_ROOT / "generator" / "src" / "templates"
+    templates_dir = PROJECT_ROOT / "core" / "generator" / "src" / "templates"
     base_template = templates_dir / "base"
 
     # Track generation source
