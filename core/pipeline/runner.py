@@ -215,7 +215,7 @@ def market_input_agent(mode: str = "demo") -> list[dict]:
 def _fetch_live_apps() -> list[dict]:
     """实时从 App Store + Google Play 抓取 AI 类 App。"""
     import sys as _sys
-    _sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+    _sys.path.insert(0, str(PROJECT_ROOT / "core" / "agents"))
     from discovery.scrapers.appstore import fetch_ai_apps_appstore
     from discovery.scrapers.googleplay import fetch_ai_apps_googleplay
 

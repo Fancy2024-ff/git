@@ -20,7 +20,7 @@ if sys.platform == "win32":
     sys.stderr.reconfigure(encoding="utf-8")
 
 # Add agents/ to path so imports work
-sys.path.insert(0, str(Path(__file__).parent.parent / "agents"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "core" / "agents"))
 
 from rich.console import Console
 from rich.panel import Panel

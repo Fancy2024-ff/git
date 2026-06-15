@@ -25,8 +25,8 @@ from pydantic import BaseModel, Field, ConfigDict, model_validator, ValidationEr
 # REPO_ROOT = apps/api/../.. = repo root
 # ---------------------------------------------------------------------------
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-# agents/ holds shared config (config.settings) until migrated to core/shared
-sys.path.insert(0, str(REPO_ROOT / "agents"))
+# core/agents holds shared config (config.settings) and shared utilities
+sys.path.insert(0, str(REPO_ROOT / "core" / "agents"))
 from config.settings import DATA_DIR
 
 SCRIPTS_DIR = REPO_ROOT / "scripts"

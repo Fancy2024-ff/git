@@ -11,17 +11,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     npm install -g wrangler && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies (config/settings + shared still under agents/)
-COPY agents/pyproject.toml agents/
-COPY agents/ agents/
-RUN pip install --no-cache-dir agents/
-
-# Application code (new structure)
+# Application code (new structure: config/settings + shared live under core/agents)
 COPY apps/ apps/
 COPY core/ core/
 COPY scripts/ scripts/
 COPY data/inputs/ data/inputs/
 COPY data/platforms/ data/platforms/
+
+# Install Python dependencies (pyproject is in core/agents)
+RUN pip install --no-cache-dir core/agents/
 
 # Ensure runtime directories exist
 RUN mkdir -p data/outputs data/inputs/real data/platform-auth
