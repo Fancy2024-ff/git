@@ -2045,9 +2045,9 @@ def _run_pipeline_steps(mode: str, job_id: str, output_dir: Path) -> dict:
             step_start("telegram_deploy", "Telegram 部署", "TelegramDeployAgent")
             t0 = time.time()
             try:
-                # deploy_telegram still lives in scripts/ (moves to core/publisher later)
-                sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
-                from deploy_telegram import deploy_telegram
+                # telegram deploy lives in core/publisher
+                sys.path.insert(0, str(PROJECT_ROOT / "core" / "publisher"))
+                from telegram_deploy import deploy_telegram
                 tg_deploy_result = deploy_telegram(job_id, output_dir, best_app, opportunity)
                 _write(output_dir / "telegram-deploy.json",
                        json.dumps(tg_deploy_result, ensure_ascii=False, indent=2))

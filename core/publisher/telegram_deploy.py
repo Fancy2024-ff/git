@@ -23,8 +23,10 @@ import httpx
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-SCRIPT_DIR = Path(__file__).parent
-PROJECT_ROOT = SCRIPT_DIR.parent
+# This file lives at core/publisher/telegram_deploy.py
+# SCRIPT_DIR = core/publisher; PROJECT_ROOT = core/publisher/../.. = repo root
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent.parent
 TEMPLATE_DIR = SCRIPT_DIR / "templates" / "telegram-webapp"
 DATA_DIR = PROJECT_ROOT / "data"
 
