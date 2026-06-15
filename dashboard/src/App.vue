@@ -1,21 +1,15 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue'
-import type { JobSummary, JobDetail } from './types/job'
-import type { PipelineMode } from './types/job'
+import type { JobSummary, JobDetail, PipelineMode, PipelineStep } from './types/job'
 import { api, connectPipelineWS, type WSHandle } from './services/api'
 import AppleTopNav from './components/AppleTopNav.vue'
 import JobMegaMenu from './components/JobMegaMenu.vue'
-import HeroSummary from './components/HeroSummary.vue'
 import SegmentedTabs from './components/SegmentedTabs.vue'
-import OverviewPanel from './components/OverviewPanel.vue'
-import PipelinePanel from './components/PipelinePanel.vue'
-import PRDPanel from './components/PRDPanel.vue'
-import ListingPanel from './components/ListingPanel.vue'
+import FactoryConsole from './components/FactoryConsole.vue'
+import DecisionOverview from './components/DecisionOverview.vue'
+import AgentMapPanel from './components/AgentMapPanel.vue'
+import DeliverablesPanel from './components/DeliverablesPanel.vue'
 import SubmitCenterPanel from './components/SubmitCenterPanel.vue'
-import FilesPanel from './components/FilesPanel.vue'
-import LogsPanel from './components/LogsPanel.vue'
-import BossViewPanel from './components/BossViewPanel.vue'
-import ImportPanel from './components/ImportPanel.vue'
 import PlatformsPanel from './components/PlatformsPanel.vue'
 
 const jobs = ref<JobSummary[]>([])
@@ -23,10 +17,12 @@ const currentJob = ref<JobDetail | null>(null)
 const menuOpen = ref(false)
 const running = ref(false)
 const logs = ref<string[]>([])
-const activeTab = ref('overview')
+const activeTab = ref('console')
 const error = ref('')
 const wsStatus = ref('')
 const mode = ref<PipelineMode>('live')
+const livePipelineSteps = ref<PipelineStep[]>([])
+const selectedAgentId = ref('')
 
 function setMode(value: PipelineMode) { mode.value = value }
 
@@ -34,13 +30,12 @@ let wsHandle: WSHandle | null = null
 let statusTimer: ReturnType<typeof setInterval> | null = null
 
 const tabs = [
-  { id: 'overview', label: '总览' },
-  { id: 'pipeline', label: '流水线' },
-  { id: 'prd', label: 'PRD' },
-  { id: 'listing', label: '上架材料' },
-  { id: 'actions', label: '提交中心' },
-  { id: 'files', label: '产物文件' },
-  { id: 'logs', label: '日志' },
+  { id: 'console', label: '运行控制台' },
+  { id: 'decision', label: '决策总览' },
+  { id: 'agents', label: 'Agent 说明' },
+  { id: 'deliverables', label: '交付物' },
+  { id: 'submit', label: '提交中心' },
+  { id: 'platforms', label: '平台库' },
 ]
 
 async function loadJobs() {
@@ -83,14 +78,11 @@ function finishRun(jobId?: string) {
   if (jobId) {
     selectJob(jobId)
     loadJobs()
-    activeTab.value = 'overview'
   } else {
     loadJobs()
   }
 }
 
-// Polling fallback: if the WS 'finished' message is ever lost, this detects the
-// backend has stopped and recovers the UI from a stuck "running" state.
 function startStatusPolling(jobId: string) {
   if (statusTimer) clearInterval(statusTimer)
   statusTimer = setInterval(async () => {
@@ -100,7 +92,7 @@ function startStatusPolling(jobId: string) {
         finishRun(jobId)
       }
     } catch {
-      /* transient backend hiccup — keep polling */
+      /* transient backend hiccup - keep polling */
     }
   }, 4000)
 }
@@ -110,14 +102,15 @@ async function startPipeline() {
   error.value = ''
   wsStatus.value = ''
   logs.value = []
-  activeTab.value = 'logs'
+  livePipelineSteps.value = []
+  selectedAgentId.value = ''
+  activeTab.value = 'console'
   teardownWatchers()
   try {
     if (mode.value === 'real') {
       const inputs = await api.getRealInputs()
       if (!inputs.exists || inputs.apps.length === 0) {
-        error.value = '生产运行需要先导入真实 App 数据，请先进入「导入」页面添加数据。'
-        activeTab.value = 'import'
+        error.value = '生产运行需要先导入真实 App 数据。'
         running.value = false
         return
       }
@@ -134,9 +127,27 @@ async function startPipeline() {
         onMessage: (msg) => {
           if (msg.type === 'log' || msg.type === 'step_log') {
             logs.value.push(msg.data || msg.message || '')
-            // Cap frontend log buffer to prevent unbounded memory growth
             if (logs.value.length > 3000) {
               logs.value.splice(0, logs.value.length - 3000)
+            }
+          }
+          if (msg.type === 'step_started') {
+            const step: PipelineStep = {
+              name: msg.step || msg.name || '',
+              agent: msg.agent || msg.step || '',
+              status: 'running',
+            }
+            livePipelineSteps.value.push(step)
+            selectedAgentId.value = step.agent
+          }
+          if (msg.type === 'step_finished') {
+            const idx = livePipelineSteps.value.findIndex(
+              s => s.agent === (msg.agent || msg.step || msg.name)
+            )
+            if (idx >= 0) {
+              livePipelineSteps.value[idx].status = msg.success === false ? 'failed' : 'passed'
+              livePipelineSteps.value[idx].artifact = msg.artifact
+              if (msg.error) livePipelineSteps.value[idx].error = msg.error
             }
           }
           if (msg.type === 'pipeline_failed') {
@@ -156,7 +167,6 @@ async function startPipeline() {
           wsStatus.value = `连接断开，重试中… (第 ${attempt} 次)`
         },
         onClose: () => {
-          // WS gave up; the status poller is the safety net.
           wsStatus.value = '实时日志连接已断开，改用状态轮询'
         },
       })
@@ -166,6 +176,10 @@ async function startPipeline() {
     running.value = false
     teardownWatchers()
   }
+}
+
+function handleSelectAgent(agentId: string) {
+  selectedAgentId.value = agentId
 }
 
 onMounted(async () => {
@@ -205,26 +219,26 @@ onBeforeUnmount(() => {
 
       <div v-if="wsStatus && running" class="ws-banner">{{ wsStatus }}</div>
 
-      <div v-if="currentJob" class="content">
-        <HeroSummary :job="currentJob" />
+      <SegmentedTabs :tabs="tabs" v-model="activeTab" />
 
-        <SegmentedTabs :tabs="tabs" v-model="activeTab" />
-
-        <div class="panel-area">
-          <OverviewPanel v-if="activeTab === 'overview'" :job="currentJob" />
-          <PipelinePanel v-if="activeTab === 'pipeline'" :job="currentJob" />
-          <PRDPanel v-if="activeTab === 'prd'" :job="currentJob" />
-          <ListingPanel v-if="activeTab === 'listing'" :job="currentJob" />
-          <SubmitCenterPanel v-if="activeTab === 'actions'" />
-          <FilesPanel v-if="activeTab === 'files'" :job="currentJob" />
-          <PlatformsPanel v-if="activeTab === 'platforms'" />
-          <LogsPanel v-if="activeTab === 'logs'" :logs="logs" />
-          <BossViewPanel v-if="activeTab === 'boss'" :job="currentJob" />
-          <ImportPanel v-if="activeTab === 'import'" />
-        </div>
+      <div class="panel-area">
+        <FactoryConsole
+          v-if="activeTab === 'console'"
+          :job="currentJob"
+          :running="running"
+          :logs="logs"
+          :live-pipeline-steps="livePipelineSteps"
+          :selected-agent-id="selectedAgentId"
+          @select-agent="handleSelectAgent"
+        />
+        <DecisionOverview v-if="activeTab === 'decision'" :job="currentJob" />
+        <AgentMapPanel v-if="activeTab === 'agents'" />
+        <DeliverablesPanel v-if="activeTab === 'deliverables'" :job="currentJob" />
+        <SubmitCenterPanel v-if="activeTab === 'submit'" />
+        <PlatformsPanel v-if="activeTab === 'platforms'" />
       </div>
 
-      <div v-else class="empty">
+      <div v-if="!currentJob && activeTab === 'console'" class="empty">
         <p class="empty-title">暂无任务数据</p>
         <p class="empty-sub">请确认后端已启动，然后点击「启动流水线」</p>
         <code class="empty-code">cd agents && python server.py</code>
@@ -246,9 +260,9 @@ onBeforeUnmount(() => {
 }
 
 .main {
-  max-width: 960px;
+  max-width: 1080px;
   margin: 0 auto;
-  padding: calc(var(--nav-height) + 24px) 24px 48px;
+  padding: calc(var(--nav-height) + 16px) 24px 48px;
 }
 
 .error-banner {
@@ -257,7 +271,7 @@ onBeforeUnmount(() => {
   padding: 10px 16px;
   border-radius: var(--radius-sm);
   font-size: 13px;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -278,20 +292,16 @@ onBeforeUnmount(() => {
   padding: 8px 16px;
   border-radius: var(--radius-sm);
   font-size: 12px;
-  margin-bottom: 16px;
-}
-
-.content {
-  animation: fadeIn 0.3s var(--ease-apple);
+  margin-bottom: 12px;
 }
 
 .panel-area {
-  margin-top: 32px;
+  margin-top: 24px;
 }
 
 .empty {
   text-align: center;
-  padding: 120px 20px;
+  padding: 100px 20px;
 }
 .empty-title {
   font-size: 20px;
@@ -309,10 +319,5 @@ onBeforeUnmount(() => {
   font-family: var(--font-mono);
   font-size: 13px;
   color: var(--color-text-2);
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
 }
 </style>
