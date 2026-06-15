@@ -33,6 +33,10 @@ data/projects/
 data/reports/
 data/outputs/
 data/pipeline_state.json
+# Stray runtime artifacts (must only live under data/outputs/{jobId}/)
+/pipeline-report.json
+/qa-report.json
+/*.log
 
 # IDE
 .vscode/
