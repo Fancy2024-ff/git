@@ -45,6 +45,51 @@ def test_http_provider_configured_with_env(monkeypatch):
     assert p.is_configured() is True
 
 
+def test_http_provider_non_json_response_maps_to_upstream_error(monkeypatch):
+    """上游返回 200 但 body 非 JSON（网关 HTML/空体）：必须映射成 ImageProviderError，不得击穿成 ValueError。"""
+    import httpx
+    monkeypatch.setenv("IMAGE_API_BASE", "https://img.example.com")
+    monkeypatch.setenv("IMAGE_API_KEY", "k")
+    from integrations.image_providers.http_provider import HttpImageProvider
+    from integrations.image_providers.errors import ImageProviderError, ImageErrorCode
+
+    class _Resp:
+        status_code = 200
+        def json(self):
+            raise ValueError("not json")  # 模拟 HTML/空体
+
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: _Resp())
+    p = HttpImageProvider()
+    with pytest.raises(ImageProviderError) as ei:
+        p.create_task("remove_background", "photo.jpg")
+    assert ei.value.code == ImageErrorCode.UPSTREAM_ERROR
+
+
+def test_http_provider_poll_id_is_url_encoded(monkeypatch):
+    """上游返回的 task_id 含特殊字符时，poll URL 必须编码，不能改变请求路径。"""
+    import httpx
+    monkeypatch.setenv("IMAGE_API_BASE", "https://img.example.com")
+    monkeypatch.setenv("IMAGE_API_KEY", "k")
+    from integrations.image_providers.http_provider import HttpImageProvider
+
+    captured = {}
+
+    class _Resp:
+        status_code = 200
+        def json(self):
+            return {"status": "processing"}
+
+    def _get(url, *a, **k):
+        captured["url"] = url
+        return _Resp()
+
+    monkeypatch.setattr(httpx, "get", _get)
+    p = HttpImageProvider()
+    p.poll_task("../../etc/passwd")
+    assert "../../etc/passwd" not in captured["url"]
+    assert "%2F" in captured["url"] or "%2E" in captured["url"]
+
+
 def test_mock_provider_full_lifecycle(monkeypatch):
     monkeypatch.setenv("IMAGE_PROVIDER", "mock")
     from integrations.image_providers import get_image_provider
@@ -144,6 +189,17 @@ def test_api_image_requires_auth(monkeypatch):
     assert r.status_code == 401
 
 
+def test_api_image_rejects_unsafe_source(monkeypatch):
+    """恶意 source（file:// / 云元数据）应被入口校验挡成 400，不进入 executor/provider。"""
+    monkeypatch.setenv("IMAGE_PROVIDER", "mock")
+    client = _load_api(monkeypatch)
+    h = {"X-API-Key": "t"}
+    for bad in ("file:///etc/passwd", "https://169.254.169.254/meta", "http://10.0.0.1/x"):
+        r = client.post("/api/runtime/image/tasks",
+                        json={"operation": "remove_background", "source": bad}, headers=h)
+        assert r.status_code == 400, f"{bad} 应被拒"
+
+
 # ── execution report 双层 ──
 
 def test_execution_report_image_app_runtime_true_with_mock(monkeypatch):
@@ -160,3 +216,64 @@ def test_execution_report_image_false_without_provider():
     r = build_execution_report("image_ai")
     assert r["app_runtime"]["runnable"] is False
     assert r["missing_capabilities"] == ["image.process"]
+
+
+# ── 回归：上游 poll 返回 "failed" 应立即落 FAILED，不白等到超时 ──
+
+def test_executor_poll_provider_failed_transitions_to_failed(monkeypatch):
+    """provider HTTP 通但业务状态 failed：任务应立即 FAILED（携带真实错误），而非卡到 timeout。"""
+    monkeypatch.setenv("IMAGE_PROVIDER", "mock")
+    from runtime import executor
+    from runtime.task_model import TaskState
+    from capabilities.schemas import CapabilityResult
+    from capabilities.status import CapabilityStatus
+
+    t = executor.create("image.process", "remove_background", image_ref="photo.jpg")
+    assert t.state == TaskState.PROCESSING
+
+    # 让 adapter.poll_task 返回 success=True 但 status=failed（模拟上游处理失败）
+    adapter = executor._adapter("image.process")
+
+    def _poll_failed(provider_task_id):
+        return CapabilityResult(
+            capability_id="image.process", operation="poll", success=True,
+            status=CapabilityStatus.CONFIGURED, provider="mock",
+            data={"task_id": provider_task_id, "status": "failed",
+                  "error_code": "upstream_error", "error_message": "上游处理失败"},
+        )
+
+    monkeypatch.setattr(adapter, "poll_task", _poll_failed)
+    polled = executor.poll(t.task_id)
+    assert polled.state == TaskState.FAILED
+    assert polled.error_code == "upstream_error"
+    assert "上游处理失败" in polled.error_message
+
+
+# ── 回归：task_store 对损坏/未知字段文件容错，不抛 500 ──
+
+def test_task_store_load_corrupt_file_returns_none(monkeypatch):
+    from runtime import task_store
+    from runtime.task_model import Task
+    t = Task(capability_id="image.process", operation="remove_background")
+    task_store.save(t)
+    # 写入半截/损坏内容
+    p = task_store._task_path(t.task_id)
+    p.write_text("{ not valid json", encoding="utf-8")
+    assert task_store.load(t.task_id) is None  # 不抛异常
+
+
+def test_task_store_load_ignores_unknown_fields(monkeypatch):
+    """旧 schema 写入的多余字段不应导致 Task(**data) 崩溃。"""
+    import json
+    from runtime import task_store
+    from runtime.task_model import Task
+    t = Task(capability_id="image.process", operation="remove_background")
+    task_store.save(t)
+    p = task_store._task_path(t.task_id)
+    data = json.loads(p.read_text(encoding="utf-8"))
+    data["legacy_field_removed_in_new_schema"] = "x"  # 模拟 schema 演进
+    p.write_text(json.dumps(data), encoding="utf-8")
+    loaded = task_store.load(t.task_id)
+    assert loaded is not None
+    assert loaded.task_id == t.task_id
+    assert not hasattr(loaded, "legacy_field_removed_in_new_schema")

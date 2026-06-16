@@ -19,6 +19,11 @@ apps/web/dist/
 core/agents/.env
 *.local.env
 .env.local
+# 所有 .env 变体（.env.development / .env.production 等，可能含 token），
+# 但保留 .env.example 模板
+.env.*
+!.env.example
+!*.env.example
 
 # Platform auth (real keys, never commit)
 data/platform-auth/*.json

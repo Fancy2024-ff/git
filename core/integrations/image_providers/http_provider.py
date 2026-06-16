@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import os
+from urllib.parse import quote
 
 import httpx
 
@@ -57,7 +58,12 @@ class HttpImageProvider(ImageProvider):
             raise ImageProviderError(ImageErrorCode.UPSTREAM_ERROR, str(e)[:200])
         if resp.status_code >= 400:
             raise ImageProviderError(self._map_http_error(resp.status_code), f"HTTP {resp.status_code}")
-        data = resp.json()
+        try:
+            data = resp.json()
+        except ValueError:
+            raise ImageProviderError(ImageErrorCode.UPSTREAM_ERROR, "上游 create 返回非 JSON 响应")
+        if not isinstance(data, dict):
+            raise ImageProviderError(ImageErrorCode.UPSTREAM_ERROR, "上游 create 响应格式异常")
         return ProviderTask(
             provider_task_id=str(data.get("task_id") or data.get("id") or ""),
             status=data.get("status", "processing"),
@@ -68,8 +74,10 @@ class HttpImageProvider(ImageProvider):
     def poll_task(self, provider_task_id: str) -> ProviderTask:
         if not self.is_configured():
             raise ImageProviderError(ImageErrorCode.PROVIDER_MISSING)
+        # 上游返回的 id 半受信：编码后再拼进 URL，防止含 / .. ? 改变请求路径
+        safe_id = quote(str(provider_task_id), safe="")
         try:
-            resp = httpx.get(f"{self.base}/tasks/{provider_task_id}",
+            resp = httpx.get(f"{self.base}/tasks/{safe_id}",
                              headers=self._headers(), timeout=self.timeout)
         except httpx.TimeoutException:
             raise ImageProviderError(ImageErrorCode.TIMEOUT, "poll_task 超时")
@@ -77,7 +85,12 @@ class HttpImageProvider(ImageProvider):
             raise ImageProviderError(ImageErrorCode.UPSTREAM_ERROR, str(e)[:200])
         if resp.status_code >= 400:
             raise ImageProviderError(self._map_http_error(resp.status_code), f"HTTP {resp.status_code}")
-        data = resp.json()
+        try:
+            data = resp.json()
+        except ValueError:
+            raise ImageProviderError(ImageErrorCode.UPSTREAM_ERROR, "上游 poll 返回非 JSON 响应")
+        if not isinstance(data, dict):
+            raise ImageProviderError(ImageErrorCode.UPSTREAM_ERROR, "上游 poll 响应格式异常")
         return ProviderTask(
             provider_task_id=provider_task_id,
             status=data.get("status", "processing"),

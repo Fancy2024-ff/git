@@ -119,6 +119,13 @@ def poll(task_id: str) -> Task | None:
                 "finished_at": time.time(),
             }
             task_store.save(task)
+        elif polled.success and polled.data.get("status") == "failed":
+            # 上游业务状态明确失败：立即落 FAILED，保留真实错误，不要白等到超时
+            task.transition(TaskState.FAILED)
+            task.error_code = polled.data.get("error_code") or RuntimeErrorCode.PROVIDER_ERROR
+            task.error_message = (polled.data.get("error_message")
+                                  or polled.message or "provider 处理失败")
+            task_store.save(task)
         elif not polled.success:
             task.transition(TaskState.FAILED)
             task.error_code = polled.error_code or RuntimeErrorCode.PROVIDER_ERROR

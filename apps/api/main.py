@@ -635,9 +635,16 @@ def _runtime_executor():
 @app.post("/api/runtime/image/tasks", dependencies=[Depends(verify_api_key)])
 def image_task_create(req: ImageTaskRequest):
     """创建图像处理任务。未配置 provider → provider_missing（不假成功）。"""
+    # 安全校验：拒绝 file://、内网/元数据地址等，防止把 SSRF/本地读取转嫁给上游
+    from runtime.input_guard import validate_source, UnsafeSourceError
+    try:
+        safe_source = validate_source(req.source)
+    except UnsafeSourceError as e:
+        raise HTTPException(400, f"非法 source: {e}")
+
     executor = _runtime_executor()
     task = executor.create("image.process", req.operation,
-                           image_ref=req.source, params=req.params)
+                           image_ref=safe_source, params=req.params)
     body = {
         "task_id": task.task_id, "status": task.state, "provider": task.provider,
         "operation": task.operation, "error_code": task.error_code,
