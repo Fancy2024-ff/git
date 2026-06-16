@@ -1,247 +1,120 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
+import { ref, computed } from 'vue'
 import type { JobDetail } from '../types/job'
+import { DELIVERABLES, hasDeliverable, resolveCopy, canViewDetail, type DeliverableKind } from '../data/deliverables'
 
-const props = defineProps<{
-  job: JobDetail | null
-}>()
+const props = defineProps<{ job: JobDetail | null }>()
 
-interface DeliverableItem {
-  key: string
-  name: string
-  purpose: string
-}
+const copiedKey = ref('')
+const detailKey = ref('')
 
-const PRODUCT_DELIVERABLES: DeliverableItem[] = [
-  { key: 'candidate.json', name: '候选应用', purpose: '筛选出的目标应用信息' },
-  { key: 'analysis.json', name: '需求分析', purpose: '需求强度评分和市场验证' },
-  { key: 'gap-check.json', name: '平台缺口', purpose: '小程序平台覆盖情况' },
-  { key: 'opportunity-report.json', name: '机会评估', purpose: '综合机会评分和推荐' },
-  { key: 'prd.json', name: '产品需求文档', purpose: '小程序 PRD 规格书' },
-  { key: 'prd.md', name: 'PRD 可读版', purpose: '产品需求文档 Markdown 版' },
+const SECTIONS: { kind: DeliverableKind; title: string }[] = [
+  { kind: 'product', title: '产品交付物' },
+  { kind: 'engineering', title: '工程交付物' },
+  { kind: 'listing', title: '上架交付物' },
 ]
 
-const ENGINEERING_DELIVERABLES: DeliverableItem[] = [
-  { key: 'miniapp', name: '小程序源码', purpose: '生成的完整小程序代码' },
-  { key: 'dist', name: '构建产物', purpose: '编译后的可部署包' },
-  { key: 'qa-report.json', name: 'QA 报告', purpose: '质量检查和合规验证结果' },
-  { key: 'pipeline-report.json', name: '流水线报告', purpose: '完整的执行步骤和状态' },
-  { key: 'generator-source.json', name: '代码来源', purpose: '代码生成模板来源记录' },
-]
-
-const LISTING_DELIVERABLES: DeliverableItem[] = [
-  { key: 'listing-materials.md', name: '上架材料', purpose: '平台提交所需的描述和文案' },
-  { key: 'listing-materials.json', name: '上架材料(结构化)', purpose: '结构化上架数据' },
-  { key: 'publish-package', name: '发布包', purpose: '多平台提交目录' },
-  { key: 'human-actions.md', name: '人工操作清单', purpose: '需要人工完成的步骤' },
-  { key: 'submission-readiness-report.json', name: '提交就绪度', purpose: '是否满足提交条件' },
-  { key: 'submit-status.json', name: '提交状态', purpose: '各平台提交流转状态' },
-]
-
-function hasArtifact(key: string): boolean {
-  if (!props.job?.artifacts) return false
-  if (key === 'miniapp') return !!props.job.miniapp_path
-  if (key === 'dist') return !!(props.job.artifacts?.['qa-report.json']?.checks?.dist_exists)
-  if (key === 'publish-package') return !!props.job.artifacts?.['submit-status.json']
-  return !!props.job.artifacts[key]
+function itemsOf(kind: DeliverableKind) {
+  return DELIVERABLES.filter(d => d.kind === kind)
 }
 
-function getArtifactPreview(key: string): string {
-  if (!props.job?.artifacts) return ''
-  const data = props.job.artifacts[key]
-  if (!data) return ''
-  if (typeof data === 'string') return data.slice(0, 80)
-  if (data.name_cn) return data.name_cn
-  if (data.name) return data.name
-  if (data.score !== undefined) return `评分: ${data.score}`
-  if (data.qa_passed !== undefined) return data.qa_passed ? 'QA 通过' : 'QA 未通过'
-  return ''
+function status(key: string): { text: string; cls: string } {
+  if (hasDeliverable(props.job, key)) return { text: '已生成', cls: 'st--ready' }
+  return { text: '缺失', cls: 'st--missing' }
 }
 
-function copyArtifact(key: string) {
-  if (!props.job?.artifacts) return
-  const data = props.job.artifacts[key]
-  if (!data) return
-  const text = typeof data === 'string' ? data : JSON.stringify(data, null, 2)
-  navigator.clipboard.writeText(text)
+async function copy(key: string) {
+  const { value } = resolveCopy(props.job, key)
+  if (!value) return
+  try {
+    await navigator.clipboard.writeText(value)
+    copiedKey.value = key
+    setTimeout(() => { if (copiedKey.value === key) copiedKey.value = '' }, 1500)
+  } catch { /* clipboard unavailable */ }
+}
+
+const detailContent = computed(() => {
+  if (!detailKey.value || !props.job?.artifacts) return ''
+  const data = props.job.artifacts[detailKey.value]
+  if (data === undefined || data === null) return ''
+  return typeof data === 'string' ? data : JSON.stringify(data, null, 2)
+})
+
+function copyLabel(key: string): string {
+  const { mode } = resolveCopy(props.job, key)
+  return mode === 'path' ? '复制路径' : '复制内容'
 }
 </script>
 
 <template>
   <div class="deliverables">
-    <!-- Section 1: Product -->
-    <section class="section">
-      <h3 class="section-heading">产品交付物</h3>
+    <section v-for="sec in SECTIONS" :key="sec.kind" class="section">
+      <h3 class="section-heading">{{ sec.title }}</h3>
       <div class="items-grid">
-        <div v-for="item in PRODUCT_DELIVERABLES" :key="item.key" class="item-card">
+        <div v-for="item in itemsOf(sec.kind)" :key="item.key" class="item-card">
           <div class="item-header">
             <span class="item-name">{{ item.name }}</span>
-            <span class="item-badge" :class="hasArtifact(item.key) ? 'badge--ready' : 'badge--missing'">
-              {{ hasArtifact(item.key) ? '就绪' : '缺失' }}
-            </span>
+            <span class="item-badge" :class="status(item.key).cls">{{ status(item.key).text }}</span>
           </div>
           <p class="item-purpose">{{ item.purpose }}</p>
-          <p v-if="hasArtifact(item.key)" class="item-preview">{{ getArtifactPreview(item.key) }}</p>
-          <div class="item-actions" v-if="hasArtifact(item.key)">
-            <button class="action-btn" @click="copyArtifact(item.key)">复制</button>
+          <p class="item-usage"><span class="usage-tag">下一步</span>{{ item.usage }}</p>
+          <div class="item-actions" v-if="hasDeliverable(job, item.key)">
+            <button class="action-btn" @click="copy(item.key)">
+              {{ copiedKey === item.key ? '已复制 ✓' : copyLabel(item.key) }}
+            </button>
+            <button v-if="canViewDetail(job, item.key)" class="action-btn" @click="detailKey = item.key">查看详情</button>
           </div>
+          <div v-else class="item-disabled">未生成，运行流水线后可用</div>
         </div>
       </div>
     </section>
 
-    <!-- Section 2: Engineering -->
-    <section class="section">
-      <h3 class="section-heading">工程交付物</h3>
-      <div class="items-grid">
-        <div v-for="item in ENGINEERING_DELIVERABLES" :key="item.key" class="item-card">
-          <div class="item-header">
-            <span class="item-name">{{ item.name }}</span>
-            <span class="item-badge" :class="hasArtifact(item.key) ? 'badge--ready' : 'badge--missing'">
-              {{ hasArtifact(item.key) ? '就绪' : '缺失' }}
-            </span>
-          </div>
-          <p class="item-purpose">{{ item.purpose }}</p>
-          <p v-if="hasArtifact(item.key)" class="item-preview">{{ getArtifactPreview(item.key) }}</p>
-          <div class="item-actions" v-if="hasArtifact(item.key)">
-            <button class="action-btn" @click="copyArtifact(item.key)">复制</button>
-          </div>
+    <!-- Detail drawer -->
+    <div v-if="detailKey" class="detail-overlay" @click.self="detailKey = ''">
+      <div class="detail-modal">
+        <div class="detail-head">
+          <span class="detail-title">{{ detailKey }}</span>
+          <button class="detail-close" @click="detailKey = ''">✕</button>
         </div>
+        <pre class="detail-pre">{{ detailContent }}</pre>
       </div>
-    </section>
-
-    <!-- Section 3: Listing -->
-    <section class="section">
-      <h3 class="section-heading">上架交付物</h3>
-      <div class="items-grid">
-        <div v-for="item in LISTING_DELIVERABLES" :key="item.key" class="item-card">
-          <div class="item-header">
-            <span class="item-name">{{ item.name }}</span>
-            <span class="item-badge" :class="hasArtifact(item.key) ? 'badge--ready' : 'badge--missing'">
-              {{ hasArtifact(item.key) ? '就绪' : '缺失' }}
-            </span>
-          </div>
-          <p class="item-purpose">{{ item.purpose }}</p>
-          <p v-if="hasArtifact(item.key)" class="item-preview">{{ getArtifactPreview(item.key) }}</p>
-          <div class="item-actions" v-if="hasArtifact(item.key)">
-            <button class="action-btn" @click="copyArtifact(item.key)">复制</button>
-          </div>
-        </div>
-      </div>
-    </section>
+    </div>
 
     <div v-if="!job" class="empty-state">
-      <p>暂无任务数据，请先运行流水线</p>
+      <p>暂无任务数据，请先启动试运行</p>
     </div>
   </div>
 </template>
 
 <style scoped>
-.deliverables {
-  animation: fadeIn 0.3s var(--ease-apple);
-}
+.deliverables { animation: fadeIn 0.3s var(--ease-apple); }
+.section { margin-bottom: 28px; }
+.section-heading { font-size: 16px; font-weight: 600; color: var(--color-text-1); margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--color-border); }
+.items-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
 
-.section {
-  margin-bottom: 28px;
-}
+.item-card { background: var(--color-surface-solid); border-radius: var(--radius-md); box-shadow: var(--shadow-card); padding: 16px; display: flex; flex-direction: column; }
+.item-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.item-name { font-size: 14px; font-weight: 600; color: var(--color-text-1); }
+.item-badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 980px; }
+.st--ready { background: var(--color-green-subtle); color: #166534; }
+.st--missing { background: rgba(0,0,0,0.04); color: var(--color-text-3); }
+.item-purpose { font-size: 12px; color: var(--color-text-2); margin-bottom: 8px; }
+.item-usage { font-size: 12px; color: var(--color-text-1); margin-bottom: 12px; line-height: 1.5; }
+.usage-tag { font-size: 10px; font-weight: 600; color: var(--color-blue); background: var(--color-blue-subtle); padding: 1px 6px; border-radius: 4px; margin-right: 6px; }
+.item-actions { display: flex; gap: 8px; margin-top: auto; }
+.action-btn { font-size: 12px; font-weight: 500; padding: 5px 12px; border-radius: 8px; border: 1px solid var(--color-border); background: transparent; color: var(--color-text-1); cursor: pointer; transition: background 0.12s; }
+.action-btn:hover { background: var(--color-blue-subtle); color: var(--color-blue); }
+.item-disabled { font-size: 11px; color: var(--color-text-3); margin-top: auto; }
 
-.section-heading {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--color-text-1);
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--color-border);
-}
+.detail-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 2000; }
+.detail-modal { background: var(--color-surface-solid); border-radius: var(--radius-lg); box-shadow: var(--shadow-elevated); width: min(720px, 92vw); max-height: 84vh; display: flex; flex-direction: column; }
+.detail-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--color-border); }
+.detail-title { font-size: 14px; font-weight: 600; font-family: var(--font-mono); color: var(--color-text-1); }
+.detail-close { background: none; border: none; font-size: 16px; color: var(--color-text-3); cursor: pointer; }
+.detail-pre { margin: 0; padding: 20px; overflow: auto; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; color: var(--color-text-1); white-space: pre-wrap; word-break: break-word; }
 
-.items-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
-}
+.empty-state { text-align: center; padding: 40px; color: var(--color-text-3); font-size: 14px; }
 
-.item-card {
-  background: var(--color-surface-solid);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
-  padding: 16px;
-  transition: box-shadow 0.2s;
-}
-.item-card:hover {
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
-}
-
-.item-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
-
-.item-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--color-text-1);
-}
-
-.item-badge {
-  font-size: 11px;
-  font-weight: 500;
-  padding: 2px 8px;
-  border-radius: 980px;
-}
-.badge--ready {
-  background: var(--color-green-subtle);
-  color: #166534;
-}
-.badge--missing {
-  background: rgba(0, 0, 0, 0.04);
-  color: var(--color-text-3);
-}
-
-.item-purpose {
-  font-size: 12px;
-  color: var(--color-text-2);
-  margin-bottom: 6px;
-}
-
-.item-preview {
-  font-size: 11px;
-  color: var(--color-text-3);
-  font-family: var(--font-mono);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-bottom: 8px;
-}
-
-.item-actions {
-  display: flex;
-  gap: 6px;
-}
-
-.action-btn {
-  font-size: 11px;
-  font-weight: 500;
-  padding: 3px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text-2);
-  cursor: pointer;
-  transition: background 0.12s;
-}
-.action-btn:hover {
-  background: rgba(0, 0, 0, 0.03);
-}
-
-.empty-state {
-  text-align: center;
-  padding: 40px;
-  color: var(--color-text-3);
-  font-size: 14px;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+@media (max-width: 600px) { .items-grid { grid-template-columns: 1fr; } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 </style>

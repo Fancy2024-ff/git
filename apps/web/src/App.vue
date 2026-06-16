@@ -3,12 +3,13 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
 import type { JobSummary, JobDetail, PipelineMode, PipelineStep } from './types/job'
 import { api, connectPipelineWS, type WSHandle } from './services/api'
 import { DEFAULT_MODE } from './data/modes'
-import { stepFromStarted, realModeBlockReason } from './data/pipeline-events'
+import { upsertStepStarted, applyStepFinished, realModeBlockReason } from './data/pipeline-events'
+import { toUserMessage } from './data/error-messages'
 import AppleTopNav from './components/AppleTopNav.vue'
 import JobMegaMenu from './components/JobMegaMenu.vue'
 import SegmentedTabs from './components/SegmentedTabs.vue'
-import FactoryConsole from './components/FactoryConsole.vue'
-import DecisionOverview from './components/DecisionOverview.vue'
+import OverviewDashboard from './components/OverviewDashboard.vue'
+import ProductionLinePanel from './components/ProductionLinePanel.vue'
 import AgentMapPanel from './components/AgentMapPanel.vue'
 import DeliverablesPanel from './components/DeliverablesPanel.vue'
 import SubmitCenterPanel from './components/SubmitCenterPanel.vue'
@@ -20,7 +21,7 @@ const currentJob = ref<JobDetail | null>(null)
 const menuOpen = ref(false)
 const running = ref(false)
 const logs = ref<string[]>([])
-const activeTab = ref('console')
+const activeTab = ref('overview')
 const error = ref('')
 const wsStatus = ref('')
 const mode = ref<PipelineMode>(DEFAULT_MODE)
@@ -33,7 +34,6 @@ function setMode(value: PipelineMode) { mode.value = value }
 function onImportSaved(count: number) {
   mode.value = 'real'
   error.value = ''
-  // 导入成功提示已在弹窗内展示，这里仅切到生产运行模式，方便用户直接启动。
   void count
 }
 
@@ -41,12 +41,12 @@ let wsHandle: WSHandle | null = null
 let statusTimer: ReturnType<typeof setInterval> | null = null
 
 const tabs = [
-  { id: 'console', label: '运行控制台' },
-  { id: 'decision', label: '决策总览' },
+  { id: 'overview', label: '总览' },
+  { id: 'pipeline', label: '生产线' },
+  { id: 'deliverables', label: '交付中心' },
+  { id: 'submit', label: '上架中心' },
   { id: 'agents', label: 'Agent 说明' },
-  { id: 'deliverables', label: '交付物' },
-  { id: 'submit', label: '提交中心' },
-  { id: 'platforms', label: '平台库' },
+  { id: 'platforms', label: '平台策略' },
 ]
 
 async function loadJobs() {
@@ -54,7 +54,7 @@ async function loadJobs() {
     const res = await api.getJobs()
     jobs.value = res.jobs
   } catch (e: any) {
-    error.value = '后端连接失败: ' + e.message
+    error.value = toUserMessage(e)
   }
 }
 
@@ -63,7 +63,7 @@ async function loadLatest() {
     currentJob.value = await api.getLatestJob()
   } catch (e: any) {
     if (e?.status !== 404) {
-      error.value = '无法连接后端: ' + e.message
+      error.value = toUserMessage(e)
     }
   }
 }
@@ -73,7 +73,7 @@ async function selectJob(id: string) {
   try {
     currentJob.value = await api.getJob(id)
   } catch (e: any) {
-    error.value = e.message
+    error.value = toUserMessage(e)
   }
 }
 
@@ -115,7 +115,7 @@ async function startPipeline() {
   logs.value = []
   livePipelineSteps.value = []
   selectedAgentId.value = ''
-  activeTab.value = 'console'
+  activeTab.value = 'pipeline'
   teardownWatchers()
   try {
     if (mode.value === 'real') {
@@ -129,7 +129,7 @@ async function startPipeline() {
     }
     const res = await api.startPipeline(mode.value)
     if (!res.accepted) {
-      error.value = 'Pipeline rejected'
+      error.value = '流水线未被接受，请稍后重试。'
       running.value = false
       return
     }
@@ -144,26 +144,19 @@ async function startPipeline() {
             }
           }
           if (msg.type === 'step_started') {
-            const step = stepFromStarted(msg)
-            livePipelineSteps.value.push(step)
-            selectedAgentId.value = step.agent
+            // upsert：相同 step/agent 只更新，不重复新增
+            livePipelineSteps.value = upsertStepStarted(livePipelineSteps.value, msg)
+            selectedAgentId.value = msg.agent || msg.step || selectedAgentId.value
           }
           if (msg.type === 'step_finished') {
-            const idx = livePipelineSteps.value.findIndex(
-              s => s.agent === (msg.agent || msg.step || msg.name)
-            )
-            if (idx >= 0) {
-              livePipelineSteps.value[idx].status = msg.success === false ? 'failed' : 'passed'
-              livePipelineSteps.value[idx].artifact = msg.artifact
-              if (msg.error) livePipelineSteps.value[idx].error = msg.error
-            }
+            livePipelineSteps.value = applyStepFinished(livePipelineSteps.value, msg)
           }
           if (msg.type === 'pipeline_failed') {
             const reason = msg.user_message || msg.error || '未知错误'
             if (mode.value === 'live') {
               error.value = `实时数据源失败（${reason}）。实时分析依赖 App Store / Google Play 在线抓取，可切换 Demo（试运行）或 Real（生产运行）验证流程。`
             } else {
-              error.value = '流水线失败: ' + reason
+              error.value = '流水线失败：' + reason
             }
             finishRun(msg.job_id)
           }
@@ -173,7 +166,7 @@ async function startPipeline() {
         },
         onError: (info) => {
           if (info.code === 4001) {
-            error.value = '认证失败，请检查 VITE_API_TOKEN 是否与后端 DASHBOARD_API_KEY 一致'
+            error.value = '认证失败，请检查 VITE_API_TOKEN 是否与后端 DASHBOARD_API_KEY 一致。'
           }
         },
         onReconnect: (attempt) => {
@@ -185,7 +178,7 @@ async function startPipeline() {
       })
     }
   } catch (e: any) {
-    error.value = `API error: ${e.message}`
+    error.value = toUserMessage(e)
     running.value = false
     teardownWatchers()
   }
@@ -242,8 +235,15 @@ onBeforeUnmount(() => {
       <SegmentedTabs :tabs="tabs" v-model="activeTab" />
 
       <div class="panel-area">
-        <FactoryConsole
-          v-if="activeTab === 'console'"
+        <OverviewDashboard
+          v-if="activeTab === 'overview'"
+          :job="currentJob"
+          :running="running"
+          :mode="mode"
+          @goto="activeTab = $event"
+        />
+        <ProductionLinePanel
+          v-if="activeTab === 'pipeline'"
           :job="currentJob"
           :running="running"
           :logs="logs"
@@ -251,17 +251,10 @@ onBeforeUnmount(() => {
           :selected-agent-id="selectedAgentId"
           @select-agent="handleSelectAgent"
         />
-        <DecisionOverview v-if="activeTab === 'decision'" :job="currentJob" />
-        <AgentMapPanel v-if="activeTab === 'agents'" />
         <DeliverablesPanel v-if="activeTab === 'deliverables'" :job="currentJob" />
-        <SubmitCenterPanel v-if="activeTab === 'submit'" />
-        <PlatformsPanel v-if="activeTab === 'platforms'" />
-      </div>
-
-      <div v-if="!currentJob && activeTab === 'console'" class="empty">
-        <p class="empty-title">暂无任务数据</p>
-        <p class="empty-sub">请确认后端已启动，然后点击右上角「启动试运行」</p>
-        <code class="empty-code">python apps/api/main.py</code>
+        <SubmitCenterPanel v-if="activeTab === 'submit'" :job="currentJob" />
+        <AgentMapPanel v-if="activeTab === 'agents'" />
+        <PlatformsPanel v-if="activeTab === 'platforms'" :job="currentJob" />
       </div>
     </main>
   </div>

@@ -25,6 +25,6 @@
   --shadow-card: 0 0 0 1px var(--color-border), 0 2px 8px rgba(0,0,0,0.04);
   --shadow-elevated: 0 8px 32px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.06);
 
-  --nav-height: 48px;
+  --nav-height: 60px;
   --ease-apple: cubic-bezier(0.22, 1, 0.36, 1);
 }
