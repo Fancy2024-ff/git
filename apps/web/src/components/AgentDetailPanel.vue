@@ -1,128 +1,16 @@
 ﻿<script setup lang="ts">
 import { computed } from 'vue'
 import type { PipelineStep } from '../types/job'
+import { AGENT_DEFS, findAgentDef } from '../data/agents'
 
 const props = defineProps<{
   step: PipelineStep | null
 }>()
 
-interface AgentDef {
-  id: string
-  name: string
-  nameEn: string
-  purpose: string
-  inputs: string[]
-  outputs: string[]
-  codeLocation: string
-  changeHint: string
-  implType: string
-}
-
-const AGENT_DEFS: AgentDef[] = [
-  {
-    id: 'candidate-finder',
-    name: '候选发现',
-    nameEn: 'Candidate Finder',
-    purpose: '从输入源中发现和筛选潜在的小程序候选应用',
-    inputs: ['real-inputs/apps.json 或 demo 数据'],
-    outputs: ['candidate.json'],
-    codeLocation: 'agents/steps/candidate_finder.py',
-    changeHint: '修改筛选逻辑或数据源配置',
-    implType: '规则',
-  },
-  {
-    id: 'market-analyst',
-    name: '市场分析',
-    nameEn: 'Market Analyst',
-    purpose: '分析候选应用的市场机会和竞争环境',
-    inputs: ['candidate.json'],
-    outputs: ['market-analysis.json'],
-    codeLocation: 'agents/steps/market_analyst.py',
-    changeHint: '调整分析维度或评分权重',
-    implType: 'LLM',
-  },
-  {
-    id: 'gap-checker',
-    name: '差距检查',
-    nameEn: 'Gap Checker',
-    purpose: '检查候选应用与目标平台要求之间的差距',
-    inputs: ['candidate.json', 'market-analysis.json'],
-    outputs: ['gap-check.json'],
-    codeLocation: 'agents/steps/gap_checker.py',
-    changeHint: '更新平台要求规则集',
-    implType: '规则',
-  },
-  {
-    id: 'opportunity-scorer',
-    name: '机会评分',
-    nameEn: 'Opportunity Scorer',
-    purpose: '综合评估候选应用的上架机会得分',
-    inputs: ['candidate.json', 'market-analysis.json', 'gap-check.json'],
-    outputs: ['opportunity-report.json'],
-    codeLocation: 'agents/steps/opportunity_scorer.py',
-    changeHint: '调整评分公式或阈值',
-    implType: '规则',
-  },
-  {
-    id: 'prd-writer',
-    name: 'PRD 撰写',
-    nameEn: 'PRD Writer',
-    purpose: '生成小程序产品需求文档',
-    inputs: ['candidate.json', 'opportunity-report.json'],
-    outputs: ['prd.json'],
-    codeLocation: 'agents/steps/prd_writer.py',
-    changeHint: '修改 PRD 模板或生成提示词',
-    implType: 'LLM',
-  },
-  {
-    id: 'code-generator',
-    name: '代码生成',
-    nameEn: 'Code Generator',
-    purpose: '根据 PRD 生成小程序源代码',
-    inputs: ['prd.json', '模板库'],
-    outputs: ['generated/miniapp/'],
-    codeLocation: 'agents/steps/code_generator.py',
-    changeHint: '更新代码模板或生成策略',
-    implType: '模板',
-  },
-  {
-    id: 'build-verify',
-    name: '构建验证',
-    nameEn: 'Build Verify',
-    purpose: '编译构建并验证小程序产物完整性',
-    inputs: ['generated/miniapp/'],
-    outputs: ['dist/', 'build-result.json'],
-    codeLocation: 'agents/steps/build_verify.py',
-    changeHint: '调整构建工具链配置',
-    implType: 'API',
-  },
-  {
-    id: 'qa-checker',
-    name: 'QA 检查',
-    nameEn: 'QA Checker',
-    purpose: '对构建产物进行质量检查和合规验证',
-    inputs: ['dist/', 'prd.json'],
-    outputs: ['qa-report.json'],
-    codeLocation: 'agents/steps/qa_checker.py',
-    changeHint: '添加或修改 QA 检查规则',
-    implType: '规则',
-  },
-  {
-    id: 'listing-preparer',
-    name: '上架准备',
-    nameEn: 'Listing Preparer',
-    purpose: '准备平台上架所需的所有材料',
-    inputs: ['candidate.json', 'dist/', 'qa-report.json'],
-    outputs: ['listing-materials.json', 'submission-readiness.json'],
-    codeLocation: 'agents/steps/listing_preparer.py',
-    changeHint: '更新平台上架材料要求',
-    implType: '模板',
-  },
-]
-
 const agentDef = computed(() => {
   if (!props.step) return AGENT_DEFS[0] || null
-  return AGENT_DEFS.find(d => d.id === props.step!.agent) || null
+  // step.agent 是 agent 名（如 MarketInputAgent），step.step 是 id（如 market_input），两者都兼容
+  return findAgentDef(props.step.agent) || findAgentDef(props.step.step) || null
 })
 
 function getImplColor(type: string): string {

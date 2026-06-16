@@ -18,12 +18,12 @@
 
 当前主链路 `core/pipeline/runner.py` 主要使用 **规则 + 模板** 实现。
 
-LLM Agent 文件已存在于 `agents/` 目录（使用 LangChain + Claude API），但尚未完全接入主链路：
-- agents/discovery/agent.py — LLM 驱动的 Discovery Agent
-- agents/research/agent.py — LLM 驱动的 Research Agent
-- agents/coding/agent.py — LLM 增强的 Coding Agent
-- agents/qa/agent.py — 增强版 QA Agent
-- agents/publisher/agent.py — Publisher Agent
-- agents/review/agent.py — Review Agent
+LLM Agent 文件已存在于 `core/agents/` 目录（使用 LangChain + Claude API），但尚未完全接入主链路：
+- core/agents/discovery/agent.py — LLM 驱动的 Discovery Agent
+- core/agents/research/agent.py — LLM 驱动的 Research Agent
+- core/agents/coding/agent.py — LLM 增强的 Coding Agent
+- core/agents/qa/agent.py — 增强版 QA Agent
+- core/agents/publisher/agent.py — Publisher Agent
+- core/agents/review/agent.py — Review Agent
 
 接入 LLM 需要配置 ANTHROPIC_API_KEY。

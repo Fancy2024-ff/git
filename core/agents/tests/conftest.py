@@ -11,8 +11,8 @@ AGENTS_DIR = Path(__file__).resolve().parent.parent
 if str(AGENTS_DIR) not in sys.path:
     sys.path.insert(0, str(AGENTS_DIR))
 
-# The FastAPI app moved from agents/server.py to apps/api/main.py during the
-# repo restructure. Load it by file path under the legacy module name "server"
+# The FastAPI app is now apps/api/main.py. Load it by file path under the
+# module name "server" (kept for historical compatibility with the test suite)
 # so the rest of the suite keeps working unchanged.
 REPO_ROOT = AGENTS_DIR.parent.parent
 API_MAIN = REPO_ROOT / "apps" / "api" / "main.py"

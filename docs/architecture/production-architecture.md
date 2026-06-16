@@ -36,7 +36,7 @@
 
 | 模块 | 状态 | 说明 |
 |------|------|------|
-| 本地数据读取 | ✅ | data/samples + data/real_inputs |
+| 本地数据读取 | ✅ | data/inputs/demo + data/inputs/real |
 | 需求评分 | ✅ | 5 维度本地规则 |
 | 平台推荐 | ✅ | 读取 platform-registry.json |
 | PRD 生成 | ✅ | 模板化 |

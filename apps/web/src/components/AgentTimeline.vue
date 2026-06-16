@@ -1,5 +1,6 @@
 ﻿<script setup lang="ts">
 import type { PipelineStep } from '../types/job'
+import { findAgentDef } from '../data/agents'
 
 const props = defineProps<{
   steps: PipelineStep[]
@@ -9,18 +10,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [stepId: string]
 }>()
-
-const AGENT_LABELS: Record<string, string> = {
-  'candidate-finder': 'Candidate Finder',
-  'market-analyst': 'Market Analyst',
-  'gap-checker': 'Gap Checker',
-  'opportunity-scorer': 'Opportunity Scorer',
-  'prd-writer': 'PRD Writer',
-  'code-generator': 'Code Generator',
-  'build-verify': 'Build Verify',
-  'qa-checker': 'QA Checker',
-  'listing-preparer': 'Listing Preparer',
-}
 
 function getStatusClass(status: string): string {
   if (status === 'passed' || status === 'done') return 'circle--passed'
@@ -37,7 +26,8 @@ function getStatusText(status: string): string {
 }
 
 function getSubtitle(step: PipelineStep): string {
-  return AGENT_LABELS[step.agent] || step.agent || ''
+  const def = findAgentDef(step.agent) || findAgentDef(step.step)
+  return def?.nameEn || step.agent || ''
 }
 </script>
 

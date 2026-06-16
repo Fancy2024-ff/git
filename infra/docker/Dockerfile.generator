@@ -24,12 +24,12 @@ COPY --from=build /app/dist ./dist
 # Templates are needed at runtime for codegen
 COPY core/generator/src/templates ./src/templates
 
-ENV PORT=3001
+ENV PORT=3100
 ENV NODE_ENV=production
 
-EXPOSE 3001
+EXPOSE 3100
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD node -e "fetch('http://localhost:3001/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+    CMD node -e "fetch('http://localhost:3100/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 
 CMD ["node", "dist/index.js"]

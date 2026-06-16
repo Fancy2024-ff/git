@@ -21,12 +21,33 @@ def test_download_with_key_missing_job_is_404(server_client, auth_headers):
     assert res.status_code == 404
 
 
-def test_get_route_is_public(server_client):
+def test_health_route_is_public(server_client):
+    """/health is the only unauthenticated route (Docker liveness probe)."""
+    client, _ = server_client
+    res = client.get("/health")
+    assert res.status_code == 200
+    assert res.json()["status"] == "ok"
+
+
+def test_status_route_requires_api_key(server_client):
+    """/api/pipeline/status carries business state, so it requires a key."""
     client, _ = server_client
     res = client.get("/api/pipeline/status")
+    assert res.status_code == 401
+
+
+def test_status_route_with_key_ok(server_client, auth_headers):
+    client, _ = server_client
+    res = client.get("/api/pipeline/status", headers=auth_headers)
     assert res.status_code == 200
-    body = res.json()
-    assert "running" in body
+    assert "running" in res.json()
+
+
+def test_jobs_route_requires_api_key(server_client):
+    """/api/jobs lists pipeline outputs, so it requires a key."""
+    client, _ = server_client
+    res = client.get("/api/jobs")
+    assert res.status_code == 401
 
 
 def test_pipeline_start_requires_api_key(server_client):

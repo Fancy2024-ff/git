@@ -12,7 +12,7 @@ Agent 驱动的小程序批量生产系统。自动发现 App Store / Google Pla
 - 生成的 dist/build/mp-weixin 可直接导入微信开发者工具
 - WebSocket 实时日志推送（per-job 路由 + 指数退避重连）
 - API 全链路认证（常量时间比较、路径穿越防御）
-- 35 个自动化测试覆盖核心路径（agents 26 + dashboard 4 + generator 5）
+- 35 个自动化测试覆盖核心路径（agents 26 + web 4 + generator 5）
 
 ## 快速开始
 
@@ -112,23 +112,22 @@ docker compose up --build
 
 三个服务自动编排：
 - API (FastAPI): http://localhost:8000
-- Generator (Node.js): http://localhost:3001
-- Dashboard (nginx): http://localhost:5173
+- Generator (Node.js): http://localhost:3100
+- Web Dashboard (nginx): http://localhost:5173
 
 停止：`docker compose down`
 
-Docker 实测状态（2026-06-14）：
-- Dockerfile.api build 通过（Python 3.11 + Node.js 22）
-- Dockerfile.generator build 通过（node:22-slim multi-stage）
-- Dockerfile.dashboard build 通过（node:22-slim build + nginx:alpine runtime）
-- `docker compose up --build` 三容器全部 healthy
-- Dashboard healthcheck 使用 `127.0.0.1`（Alpine 兼容）
-- 端到端 pipeline run 通过：QA passed, build passed, dist/build/mp-weixin 存在
-- readiness=false 是业务原因（缺 AppID/截图/真机测试），非构建失败
+**Docker 验证状态：Dockerfile 与 compose 已静态校验（路径、lockfile、端口、healthcheck 全部对齐当前架构），但尚未在本仓库的开发机上实跑 `docker compose build`（该机器未安装 Docker）。** 待在装有 Docker 的环境按 [docs/deployment/DOCKER_VERIFY.md](docs/deployment/DOCKER_VERIFY.md) 实测确认。
+
+- infra/docker/Dockerfile.api（Python 3.11 + Node.js 22）
+- infra/docker/Dockerfile.generator（node:22-slim multi-stage）
+- infra/docker/Dockerfile.web（node:22-slim build + nginx:alpine runtime）
+- 三个服务：api / generator / web
+- web healthcheck 使用 `127.0.0.1`（Alpine 兼容）
 
 已知部署风险：
 - `VITE_API_TOKEN` 通过 build-arg 烘焙进前端 JS bundle。内部 MVP 可接受，对外生产应改为 runtime config（nginx 提供 `/config.json`）或后端 session 方案。
-- 更换 API key 需要重新 build dashboard 镜像。
+- 更换 API key 需要重新 build web 镜像。
 
 ## 环境要求（本地开发）
 
@@ -171,7 +170,7 @@ npm test -- --run
 - **JSON 文件数据库** — MVP 级别，并发写受 filelock 约束
 - **LLM Agent 无单元测试** — 需要 mock LLM 调用，属于下一阶段
 - **Vue 组件零测试** — 14 个组件无 render/interaction test
-- **run_demo_pipeline.py 2000 行** — 与 agents/ 逻辑有重复，重构需整体规划
+- **core/pipeline/runner.py 约 2000 行** — 与 core/agents/ 逻辑有重复，重构需整体规划
 - **WebSocket token 在 query string** — 浏览器 WS API 限制，已文档化
 - **Scraper 使用搜狗/百度作为代理** — 准确率有限，短名称(≤3字符)跳过
 

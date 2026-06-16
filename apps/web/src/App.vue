@@ -2,6 +2,8 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import type { JobSummary, JobDetail, PipelineMode, PipelineStep } from './types/job'
 import { api, connectPipelineWS, type WSHandle } from './services/api'
+import { DEFAULT_MODE } from './data/modes'
+import { stepFromStarted, realModeBlockReason } from './data/pipeline-events'
 import AppleTopNav from './components/AppleTopNav.vue'
 import JobMegaMenu from './components/JobMegaMenu.vue'
 import SegmentedTabs from './components/SegmentedTabs.vue'
@@ -11,6 +13,7 @@ import AgentMapPanel from './components/AgentMapPanel.vue'
 import DeliverablesPanel from './components/DeliverablesPanel.vue'
 import SubmitCenterPanel from './components/SubmitCenterPanel.vue'
 import PlatformsPanel from './components/PlatformsPanel.vue'
+import ImportRealAppsModal from './components/ImportRealAppsModal.vue'
 
 const jobs = ref<JobSummary[]>([])
 const currentJob = ref<JobDetail | null>(null)
@@ -20,11 +23,19 @@ const logs = ref<string[]>([])
 const activeTab = ref('console')
 const error = ref('')
 const wsStatus = ref('')
-const mode = ref<PipelineMode>('live')
+const mode = ref<PipelineMode>(DEFAULT_MODE)
 const livePipelineSteps = ref<PipelineStep[]>([])
 const selectedAgentId = ref('')
+const importOpen = ref(false)
 
 function setMode(value: PipelineMode) { mode.value = value }
+
+function onImportSaved(count: number) {
+  mode.value = 'real'
+  error.value = ''
+  // 导入成功提示已在弹窗内展示，这里仅切到生产运行模式，方便用户直接启动。
+  void count
+}
 
 let wsHandle: WSHandle | null = null
 let statusTimer: ReturnType<typeof setInterval> | null = null
@@ -109,8 +120,9 @@ async function startPipeline() {
   try {
     if (mode.value === 'real') {
       const inputs = await api.getRealInputs()
-      if (!inputs.exists || inputs.apps.length === 0) {
-        error.value = '生产运行需要先导入真实 App 数据。'
+      const block = realModeBlockReason(inputs)
+      if (block) {
+        error.value = block
         running.value = false
         return
       }
@@ -132,12 +144,7 @@ async function startPipeline() {
             }
           }
           if (msg.type === 'step_started') {
-            const step: PipelineStep = {
-              step: msg.step || msg.name || '',
-              name: msg.step || msg.name || '',
-              agent: msg.agent || msg.step || '',
-              status: 'running',
-            }
+            const step = stepFromStarted(msg)
             livePipelineSteps.value.push(step)
             selectedAgentId.value = step.agent
           }
@@ -152,7 +159,12 @@ async function startPipeline() {
             }
           }
           if (msg.type === 'pipeline_failed') {
-            error.value = '流水线失败: ' + (msg.user_message || msg.error || '未知错误')
+            const reason = msg.user_message || msg.error || '未知错误'
+            if (mode.value === 'live') {
+              error.value = `实时数据源失败（${reason}）。实时分析依赖 App Store / Google Play 在线抓取，可切换 Demo（试运行）或 Real（生产运行）验证流程。`
+            } else {
+              error.value = '流水线失败: ' + reason
+            }
             finishRun(msg.job_id)
           }
           if (msg.type === 'pipeline_finished') {
@@ -201,7 +213,14 @@ onBeforeUnmount(() => {
       :mode="mode"
       @toggle-menu="menuOpen = !menuOpen"
       @start="startPipeline"
+      @open-import="importOpen = true"
       @update:mode="setMode"
+    />
+
+    <ImportRealAppsModal
+      v-if="importOpen"
+      @close="importOpen = false"
+      @saved="onImportSaved"
     />
 
     <JobMegaMenu
@@ -241,8 +260,8 @@ onBeforeUnmount(() => {
 
       <div v-if="!currentJob && activeTab === 'console'" class="empty">
         <p class="empty-title">暂无任务数据</p>
-        <p class="empty-sub">请确认后端已启动，然后点击「启动流水线」</p>
-        <code class="empty-code">cd agents && python server.py</code>
+        <p class="empty-sub">请确认后端已启动，然后点击右上角「启动试运行」</p>
+        <code class="empty-code">python apps/api/main.py</code>
       </div>
     </main>
   </div>

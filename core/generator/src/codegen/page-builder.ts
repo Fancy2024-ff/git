@@ -52,7 +52,7 @@ function resolveTemplatesDir(): string {
     path.resolve(__dirname, "../templates"), // dev: src/codegen -> src/templates
     path.resolve(__dirname, "../../src/templates"), // prod: dist/codegen -> src/templates
     path.resolve(process.cwd(), "src/templates"),
-    path.resolve(process.cwd(), "generator/src/templates"),
+    path.resolve(process.cwd(), "core/generator/src/templates"), // repo root cwd
   ];
   for (const c of candidates) {
     if (fs.pathExistsSync(c)) return c;

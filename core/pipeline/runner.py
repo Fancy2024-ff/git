@@ -116,7 +116,7 @@ def step_start(step_id: str, name: str, agent: str):
     _pipeline_steps.append(entry)
     _flush_pipeline_report()
     # Also print structured event for WS parsing
-    p(json.dumps({"event": "step_started", "job_id": _pipeline_job_id, "step": step_id, "agent": agent, "message": name, "status": "running", "started_at": entry["started_at"]}))
+    p(json.dumps({"event": "step_started", "job_id": _pipeline_job_id, "step": step_id, "agent": agent, "name": name, "message": name, "status": "running", "started_at": entry["started_at"]}))
 
 
 def step_end(artifact: str = None, error: str = None, error_code: str = None,
@@ -142,7 +142,8 @@ def step_end(artifact: str = None, error: str = None, error_code: str = None,
     # Print structured event
     evt = {
         "event": "step_finished", "job_id": _pipeline_job_id, "step": entry["step"],
-        "agent": entry["agent"], "status": entry["status"], "artifact": artifact or "",
+        "agent": entry["agent"], "name": entry["name"], "status": entry["status"],
+        "artifact": artifact or "",
         "finished_at": entry["finished_at"], "duration_ms": entry["duration_ms"],
         "error": entry.get("error") or "",
     }
@@ -620,7 +621,7 @@ def codegen_agent(app: dict, prd_json: dict, output_dir: Path) -> tuple[Path, di
         "generated_files_count": 0,
     }
 
-    # Primary: copy from generator/src/templates/base
+    # Primary: copy from core/generator/src/templates/base
     if base_template.exists() and (base_template / "package.json").exists():
         shutil.copytree(str(base_template), str(miniapp_dir), dirs_exist_ok=True)
         gen_source["source"] = "generator_templates"
@@ -1691,7 +1692,7 @@ def build_submission_readiness(best_app: dict, opportunity: dict, qa: dict,
         "job_id": _pipeline_job_id,
         "app_name": best_app["name_cn"],
         "ready_to_submit": len(blocking_issues) == 0,
-        # Back-compat alias for older dashboards; same value as ready_to_submit.
+        # Back-compat alias for older web clients; same value as ready_to_submit.
         "is_ready_to_submit": len(blocking_issues) == 0,
         "blocking_issues": blocking_issues,
         "warning_issues": warning_issues,
@@ -1814,7 +1815,7 @@ def main():
             step_end(error=str(e), error_code="pipeline_exception",
                      user_message=user_msg, developer_message=tb[-1500:])
         finalize_pipeline_report(total_passed=False, error=str(e))
-        # Structured failure event for the dashboard WS.
+        # Structured failure event for the web client WS.
         p(json.dumps({
             "event": "pipeline_failed",
             "job_id": _pipeline_job_id,

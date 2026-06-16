@@ -1,5 +1,6 @@
 ﻿<script setup lang="ts">
 import type { JobDetail, PipelineMode } from '../types/job'
+import { MODES, startLabelFor } from '../data/modes'
 
 const props = defineProps<{
   currentJob: JobDetail | null
@@ -10,6 +11,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'toggle-menu': []
   start: []
+  'open-import': []
   'update:mode': [value: PipelineMode]
 }>()
 
@@ -34,21 +36,19 @@ function getAppName(): string {
         </button>
       </div>
       <div class="nav-right">
+        <button class="import-btn" @click="emit('open-import')">导入真实 App</button>
         <div class="mode-toggle">
           <button
+            v-for="m in MODES"
+            :key="m.value"
             class="mode-btn"
-            :class="{ 'mode-btn--active': mode === 'live' }"
-            @click="emit('update:mode', 'live')"
-          >实时分析</button>
-          <button
-            class="mode-btn"
-            :class="{ 'mode-btn--active': mode === 'demo' }"
-            @click="emit('update:mode', 'demo')"
-          >Demo</button>
+            :class="{ 'mode-btn--active': mode === m.value }"
+            @click="emit('update:mode', m.value)"
+          >{{ m.label }}</button>
         </div>
         <span class="status-dot" :class="running ? 'status-dot--active' : 'status-dot--idle'"></span>
         <button class="start-btn" :disabled="running" @click="emit('start')">
-          {{ running ? '运行中...' : mode === 'live' ? '启动全链路' : '启动 Demo' }}
+          {{ running ? '运行中...' : startLabelFor(mode) }}
         </button>
       </div>
     </div>
@@ -151,6 +151,22 @@ function getAppName(): string {
   background: #fff;
   color: var(--color-text-1);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.import-btn {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-1);
+  background: rgba(0, 0, 0, 0.06);
+  border: none;
+  border-radius: 980px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.import-btn:hover {
+  background: rgba(0, 0, 0, 0.1);
 }
 
 .status-dot {

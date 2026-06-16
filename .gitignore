@@ -13,12 +13,9 @@ venv/
 node_modules/
 core/generator/dist/
 apps/web/dist/
-generator/dist/
-dashboard/dist/
 
 # Environment
 .env
-agents/.env
 core/agents/.env
 *.local.env
 .env.local

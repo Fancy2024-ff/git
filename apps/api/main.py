@@ -305,7 +305,14 @@ async def _stream_pipeline_output(job_id: str):
             pipeline_process = None  # Idempotent fallback if stop didn't clear it
 
 
-@app.get("/api/pipeline/status")
+@app.get("/health")
+def health():
+    """Unauthenticated liveness probe (used by Docker HEALTHCHECK).
+    Returns only liveness — no business data — so it stays auth-free."""
+    return {"status": "ok"}
+
+
+@app.get("/api/pipeline/status", dependencies=[Depends(verify_api_key)])
 def pipeline_status():
     """Current pipeline status."""
     running = pipeline_process is not None and pipeline_process.poll() is None
@@ -398,7 +405,7 @@ async def ws_pipeline_global(ws: WebSocket):
 # SECTION: Jobs CRUD (from OUTPUTS_DIR)
 # ---------------------------------------------------------------------------
 
-@app.get("/api/jobs")
+@app.get("/api/jobs", dependencies=[Depends(verify_api_key)])
 def list_jobs(limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0)):
     """List all pipeline jobs, sorted newest first. Supports pagination."""
     if not OUTPUTS_DIR.exists():

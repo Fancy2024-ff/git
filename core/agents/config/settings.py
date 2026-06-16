@@ -7,7 +7,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Paths
-PROJECT_ROOT = Path(__file__).parent.parent.parent
+# This file lives at core/agents/config/settings.py.
+# Repo root = settings.py / config / agents / core → 4 levels up.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 APPS_DIR = DATA_DIR / "apps"
 PRDS_DIR = DATA_DIR / "prds"

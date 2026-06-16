@@ -45,11 +45,11 @@
 ## 代码生成模板 (CodegenAgent)
 
 位置: `core/pipeline/runner.py:codegen_agent`
-模板: `generator/src/templates/base/` + `generator/src/templates/ai-tool/`
+模板: `core/generator/src/templates/base/` + `core/generator/src/templates/ai-tool/`
 
 逻辑:
-1. 从 generator/src/templates/base 复制基础骨架
-2. 从 generator/src/templates/ai-tool 复制功能页面
+1. 从 core/generator/src/templates/base 复制基础骨架
+2. 从 core/generator/src/templates/ai-tool 复制功能页面
 3. 定制 package.json (name, description)
 4. 定制 manifest.json (appid, name)
 5. 定制 pages.json (页面注册)
@@ -60,12 +60,12 @@
 
 ## LLM Agent（未接入主链路）
 
-agents/ 目录下的 Agent 使用 LangChain + Claude API:
-- agents/discovery/agent.py — 用 LLM 推荐 App + 评估
-- agents/research/agent.py — 用 LLM 分析功能 + 生成 PRD
-- agents/coding/agent.py — 用 LLM 增强页面代码
+core/agents/ 目录下的 Agent 使用 LangChain + Claude API:
+- core/agents/discovery/agent.py — 用 LLM 推荐 App + 评估
+- core/agents/research/agent.py — 用 LLM 分析功能 + 生成 PRD
+- core/agents/coding/agent.py — 用 LLM 增强页面代码
 
 接入方式:
 1. 配置 ANTHROPIC_API_KEY
-2. 修改 run_demo_pipeline.py 对应步骤调用 agents/ 下的函数
-3. 或切换到 agents/orchestrator/pipeline.py (LangGraph 版本)
+2. 修改 core/pipeline/runner.py 对应步骤调用 core/agents/ 下的函数
+3. 或切换到 core/agents/orchestrator/pipeline.py (LangGraph 版本)

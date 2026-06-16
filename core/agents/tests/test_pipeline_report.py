@@ -15,7 +15,7 @@ SCRIPT = Path(__file__).resolve().parents[3] / "core" / "pipeline" / "runner.py"
 
 @pytest.fixture(scope="module")
 def pipe():
-    spec = importlib.util.spec_from_file_location("run_demo_pipeline", SCRIPT)
+    spec = importlib.util.spec_from_file_location("pipeline_runner", SCRIPT)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
