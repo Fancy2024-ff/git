@@ -29,6 +29,22 @@ const steps = computed<PipelineStep[]>(() => {
 const currentStep = computed(() => steps.value.find(s => s.status === 'running'))
 const completedCount = computed(() => steps.value.filter(s => s.status === 'passed' || s.status === 'done').length)
 const totalCount = computed(() => steps.value.length || 10)
+const hasFailed = computed(() => steps.value.some(s => s.status === 'failed'))
+
+// 上架就绪度：生产线跑完不等于能上架，可能还卡在人工阻塞。
+const readiness = computed(() => props.job?.artifacts?.['submission-readiness-report.json'] || null)
+const blockingCount = computed(() => (readiness.value?.blocking_issues || []).length)
+const isReady = computed(() => !!(readiness.value?.is_ready_to_submit ?? readiness.value?.ready_to_submit))
+
+// 收尾状态：区分「失败 / 可上架 / 生产完成但有人工阻塞 / 单纯结束」
+const endState = computed<{ text: string; cls: string }>(() => {
+  if (hasFailed.value) return { text: '流程中断，存在失败步骤', cls: 'st--fail' }
+  if (isReady.value) return { text: '生产完成，可上架', cls: 'st--ready' }
+  if (blockingCount.value > 0) {
+    return { text: `自动化已完成，还有 ${blockingCount.value} 项人工阻塞待处理（见总览）`, cls: 'st--block' }
+  }
+  return { text: '自动化流程已完成', cls: 'st--done' }
+})
 
 const selectedStep = computed(() => {
   if (props.selectedAgentId) {
@@ -62,7 +78,7 @@ const selectedStep = computed(() => {
           <span class="ls-current">正在执行：{{ currentStep.name }}</span>
         </template>
         <span v-else-if="steps.length === 0" class="ls-idle">尚未运行</span>
-        <span v-else class="ls-done">流程已结束</span>
+        <span v-else class="ls-end" :class="endState.cls">{{ endState.text }}</span>
       </div>
     </div>
 
@@ -107,7 +123,11 @@ const selectedStep = computed(() => {
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-blue); box-shadow: 0 0 6px rgba(0,113,227,0.5); animation: pulse 1.2s infinite; }
 .ls-current { font-size: 13px; color: var(--color-blue); font-weight: 500; }
 .ls-idle { font-size: 13px; color: var(--color-text-3); }
-.ls-done { font-size: 13px; color: #166534; }
+.ls-end { font-size: 13px; font-weight: 500; }
+.st--ready { color: #166534; }
+.st--block { color: #92400e; }
+.st--fail { color: #991b1b; }
+.st--done { color: var(--color-text-2); }
 
 .empty { text-align: center; padding: 80px 20px; }
 .empty-title { font-size: 18px; font-weight: 600; color: var(--color-text-1); }

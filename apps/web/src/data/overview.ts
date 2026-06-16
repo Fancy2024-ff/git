@@ -1,4 +1,4 @@
-// 总览页的纯逻辑：把 artifacts 汇总成老板能看懂的结论 + 下一步行动。
+// 总览页的纯逻辑：把 artifacts 汇总成决策者能看懂的结论 + 下一步行动。
 // 全部纯函数，便于单测；组件只负责渲染。
 
 export type OverallStatus = 'idle' | 'running' | 'failed' | 'not_ready' | 'ready' | 'done'
@@ -45,7 +45,7 @@ export function statusLabel(status: OverallStatus): { text: string; tone: string
   }
 }
 
-/** 一句话结论：老板一眼看懂当前发生了什么 */
+/** 一句话结论：一眼看懂当前发生了什么 */
 export function oneLineConclusion(input: OverviewInput): string {
   const status = computeOverallStatus(input)
   const appName = input.candidate?.name_cn || input.candidate?.name || input.opportunity?.app_name_cn || '小程序'

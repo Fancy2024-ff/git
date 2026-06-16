@@ -18,7 +18,7 @@ export interface DeliverableDef {
 export const DELIVERABLES: DeliverableDef[] = [
   // 产品
   { key: 'candidate.json', name: '候选应用', kind: 'product', purpose: '筛选出的目标 App 信息', usage: '确认选中的应用是否符合预期', copyMode: 'content' },
-  { key: 'opportunity-report.json', name: '机会评估', kind: 'product', purpose: '综合机会评分与推荐理由', usage: '向老板汇报“为什么值得做”', copyMode: 'content' },
+  { key: 'opportunity-report.json', name: '机会评估', kind: 'product', purpose: '综合机会评分与推荐理由', usage: '用于说明“为什么值得做”', copyMode: 'content' },
   { key: 'prd.md', name: 'PRD 产品文档', kind: 'product', purpose: '小程序产品需求文档（可读版）', usage: '查看详情，确认产品方案', copyMode: 'content' },
   { key: 'prd.json', name: 'PRD（结构化）', kind: 'product', purpose: '结构化 PRD，供代码生成消费', usage: '工程消费，无需人工阅读', copyMode: 'content' },
   // 工程
