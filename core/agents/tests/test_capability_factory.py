@@ -131,12 +131,15 @@ def test_image_provider_missing_without_config(monkeypatch):
 def test_image_configured_when_both_env_present(monkeypatch):
     monkeypatch.setenv("IMAGE_API_KEY", "k")
     monkeypatch.setenv("IMAGE_API_BASE", "https://img")
+    monkeypatch.delenv("IMAGE_PROVIDER", raising=False)
     from capabilities.image import ImageAdapter
     a = ImageAdapter()
-    assert a.configured is True
-    created = a.create_task("id_photo", "x.jpg")
-    assert created.success is True
-    assert created.data["task_id"]
+    assert a.configured is True                      # http provider 配置齐
+    assert a.truly_connected_operations() == ["remove_background"]
+    # 未接通的 operation 诚实报错，不假成功
+    r = a.create_task("id_photo", "x.jpg")
+    assert r.success is False
+    assert r.error_code == "provider_unsupported"
 
 
 # ── vision / speech / video stub + utility local ──

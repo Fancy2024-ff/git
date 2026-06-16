@@ -736,9 +736,10 @@ def _pages_image_ai(label: str) -> tuple[str, str]:
 import {{ ref }} from 'vue'
 import {{ request }} from '../../utils/request'
 
+// 状态机：idle / creating / processing / succeeded / failed / provider_missing
 const imageUrl = ref('')
 const operation = ref('remove_background')
-const processing = ref(false)
+const status = ref('idle')
 const errorMsg = ref('')
 const operations = [
   {{ value: 'remove_background', label: '抠图换底' }},
@@ -746,25 +747,58 @@ const operations = [
   {{ value: 'avatar_style', label: '头像风格化' }},
   {{ value: 'enhance', label: '画质增强' }},
 ]
+const processing = ref(false)
 
 function chooseImage() {{
-  uni.chooseImage({{ count: 1, success: (res: any) => {{ imageUrl.value = res.tempFilePaths[0]; errorMsg.value = '' }} }})
+  uni.chooseImage({{ count: 1, success: (res: any) => {{ imageUrl.value = res.tempFilePaths[0]; errorMsg.value = ''; status.value = 'idle' }} }})
 }}
+
+function sleep(ms: number) {{ return new Promise(r => setTimeout(r, ms)) }}
 
 async function submit() {{
   if (!imageUrl.value) return
   processing.value = true
   errorMsg.value = ''
+  status.value = 'creating'
   try {{
-    // 上传 + 创建任务（后端图像能力 API）。未接入时后端返回未配置，前端如实提示。
-    const res: any = await request('/api/image/process', {{ operation: operation.value, image: imageUrl.value }})
-    if (res && res.result_url) {{
-      uni.navigateTo({{ url: '/pages/result/result?img=' + encodeURIComponent(res.result_url) }})
+    // 1) 创建 runtime 任务（真实后端，绝不本地假处理）
+    const created: any = await request('/api/runtime/image/tasks', 'POST', {{ operation: operation.value, source: imageUrl.value }})
+    if (created.error_code === 'provider_missing') {{
+      status.value = 'provider_missing'
+      errorMsg.value = created.message || '图像能力未接入（需配置图像 API）'
+      return
+    }}
+    if (!created.task_id || created.error_code) {{
+      status.value = 'failed'
+      errorMsg.value = created.message || '任务创建失败'
+      return
+    }}
+    // 2) 轮询任务状态
+    status.value = 'processing'
+    const taskId = created.task_id
+    for (let i = 0; i < 30; i++) {{
+      const polled: any = await request('/api/runtime/image/tasks/' + taskId, 'GET')
+      if (polled.status === 'succeeded') break
+      if (polled.status === 'failed' || polled.status === 'timeout') {{
+        status.value = 'failed'
+        errorMsg.value = polled.message || '处理失败'
+        return
+      }}
+      await sleep(1000)
+    }}
+    // 3) 取结果
+    const res: any = await request('/api/runtime/image/tasks/' + taskId + '/result', 'GET')
+    const url = res.result && res.result.result_url
+    if (res.status === 'succeeded' && url) {{
+      status.value = 'succeeded'
+      uni.navigateTo({{ url: '/pages/result/result?img=' + encodeURIComponent(url) }})
     }} else {{
-      errorMsg.value = (res && res.message) || '图像能力未接入，无法处理（需配置图像 API）'
+      status.value = 'failed'
+      errorMsg.value = res.message || '未取得结果'
     }}
   }} catch (e: any) {{
-    errorMsg.value = '图像能力未接入或调用失败：' + (e?.message || '未知错误')
+    status.value = 'failed'
+    errorMsg.value = '调用失败：' + (e?.message || '未知错误')
   }} finally {{
     processing.value = false
   }}

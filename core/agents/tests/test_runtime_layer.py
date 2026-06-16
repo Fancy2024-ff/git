@@ -80,11 +80,10 @@ def test_executor_image_unconfigured_fails_honestly(monkeypatch):
 # ── 执行器：image 配置后走真实任务模型（mock env）──
 
 def test_executor_image_configured_runs_task_model(monkeypatch):
-    monkeypatch.setenv("IMAGE_API_KEY", "k")
-    monkeypatch.setenv("IMAGE_API_BASE", "https://img")
+    monkeypatch.setenv("IMAGE_PROVIDER", "mock")
     from runtime import executor
     from runtime.task_model import TaskState
-    t = executor.create("image.process", "id_photo", image_ref="x.jpg")
+    t = executor.create("image.process", "remove_background", image_ref="x.jpg")
     assert t.state == TaskState.PROCESSING
     assert t.result.get("provider_task_id")
     polled = executor.poll(t.task_id)
@@ -95,11 +94,10 @@ def test_executor_image_configured_runs_task_model(monkeypatch):
 # ── 执行器：超时 + 清理 ──
 
 def test_executor_timeout_and_cleanup(monkeypatch):
-    monkeypatch.setenv("IMAGE_API_KEY", "k")
-    monkeypatch.setenv("IMAGE_API_BASE", "https://img")
+    monkeypatch.setenv("IMAGE_PROVIDER", "mock")
     from runtime import executor, task_store
     from runtime.task_model import TaskState
-    t = executor.create("image.process", "id_photo", image_ref="x.jpg", timeout_seconds=0)
+    t = executor.create("image.process", "remove_background", image_ref="x.jpg", timeout_seconds=0)
     # deadline 已过 → poll 判定 timeout
     time.sleep(0.01)
     polled = executor.poll(t.task_id)

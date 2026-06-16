@@ -107,7 +107,17 @@ def poll(task_id: str) -> Task | None:
         polled = adapter.poll_task(provider_task_id)
         if polled.success and polled.data.get("status") == "succeeded":
             task.transition(TaskState.SUCCEEDED)
-            task.result = {**task.result, "result_url": polled.data.get("result_url", "")}
+            # 取完整结果（若 adapter 提供 get_result）
+            payload = {"result_url": polled.data.get("result_url", "")}
+            if hasattr(adapter, "get_result"):
+                got = adapter.get_result(provider_task_id)
+                if got.success:
+                    payload = {**payload, **got.data}
+            task.result = {
+                **task.result, **payload,
+                "operation": task.operation, "provider": task.provider,
+                "finished_at": time.time(),
+            }
             task_store.save(task)
         elif not polled.success:
             task.transition(TaskState.FAILED)

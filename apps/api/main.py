@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field, ConfigDict, model_validator, ValidationEr
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 # core/agents holds shared config (config.settings) and shared utilities
 sys.path.insert(0, str(REPO_ROOT / "core" / "agents"))
+sys.path.insert(0, str(REPO_ROOT / "core"))  # for runtime / capabilities / integrations
 from config.settings import DATA_DIR
 
 PIPELINE_RUNNER = REPO_ROOT / "core" / "pipeline" / "runner.py"
@@ -612,6 +613,65 @@ def wechat_upload():
         "upload_passed": False,
         "reason": "miniprogram-ci integration pending",
         "config_valid": True,
+    }
+
+
+# ---------------------------------------------------------------------------
+# SECTION: Runtime — Image tasks (create / poll / result)
+# 走 core/runtime executor + capabilities/integrations，前端绝不直连 provider。
+# ---------------------------------------------------------------------------
+
+class ImageTaskRequest(BaseModel):
+    operation: str = "remove_background"
+    source: str = ""          # 图片引用（上传 id / 临时路径 / URL）
+    params: dict = {}
+
+
+def _runtime_executor():
+    from runtime import executor
+    return executor
+
+
+@app.post("/api/runtime/image/tasks", dependencies=[Depends(verify_api_key)])
+def image_task_create(req: ImageTaskRequest):
+    """创建图像处理任务。未配置 provider → provider_missing（不假成功）。"""
+    executor = _runtime_executor()
+    task = executor.create("image.process", req.operation,
+                           image_ref=req.source, params=req.params)
+    body = {
+        "task_id": task.task_id, "status": task.state, "provider": task.provider,
+        "operation": task.operation, "error_code": task.error_code,
+        "message": task.error_message or "",
+    }
+    if task.error_code == "provider_missing":
+        body["message"] = ("图像能力未接入 provider（需配置 IMAGE_API_BASE+IMAGE_API_KEY 或 IMAGE_PROVIDER=mock）")
+    return body
+
+
+@app.get("/api/runtime/image/tasks/{task_id}", dependencies=[Depends(verify_api_key)])
+def image_task_poll(task_id: str):
+    executor = _runtime_executor()
+    task = executor.poll(task_id)
+    if task is None:
+        raise HTTPException(404, "task not found")
+    return {
+        "task_id": task.task_id, "status": task.state, "provider": task.provider,
+        "operation": task.operation, "error_code": task.error_code,
+        "message": task.error_message or "",
+    }
+
+
+@app.get("/api/runtime/image/tasks/{task_id}/result", dependencies=[Depends(verify_api_key)])
+def image_task_result(task_id: str):
+    executor = _runtime_executor()
+    task = executor.poll(task_id)   # poll 顺带推进状态
+    if task is None:
+        raise HTTPException(404, "task not found")
+    result = executor.result(task_id)
+    return {
+        "task_id": task.task_id, "status": task.state, "provider": task.provider,
+        "operation": task.operation, "result": result,
+        "error_code": task.error_code, "message": task.error_message or "",
     }
 
 

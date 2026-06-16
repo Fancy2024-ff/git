@@ -30,6 +30,16 @@ def _capability_runtime(capability_id: str, configured: bool) -> dict:
     """工厂侧该能力可执行的 operation。未配置 → 空 + 诚实标注。"""
     if not configured:
         return {"executable_operations": [], "note": "provider 未接入，工厂侧无法执行"}
+    # image：可执行 operation 由 provider 真接通的决定（本轮 remove_background）
+    if capability_id == "image.process":
+        try:
+            from capabilities.registry import get_adapter
+            adapter = get_adapter("image.process")
+            ops = adapter.truly_connected_operations() if hasattr(adapter, "truly_connected_operations") else []
+        except Exception:
+            ops = []
+        return {"executable_operations": ops,
+                "note": f"provider 已接入，真接通 operation: {ops}" if ops else "provider 已接入但无真接通 operation"}
     ops = _CAPABILITY_RUNTIME_OPS.get(capability_id, [])
     note = "已可执行" if ops else "provider 已配置但未声明可执行 operation"
     if capability_id == "utility.execute":
@@ -57,7 +67,7 @@ def build_execution_report(app_type: str) -> dict:
             "app_type": app_type, "error": f"{type(e).__name__}: {str(e)[:200]}",
             "required_capabilities": [], "configured_capabilities": [],
             "missing_capabilities": [], "runnable_level": "buildable",
-            "capability_runtime": {}, "app_runtime": _app_runtime_false(app_type),
+            "capability_runtime": {}, "app_runtime": {"runnable": False, "reason": "report 构建异常"},
             "task_model": _task_model_spec(),
         }
 
@@ -69,19 +79,38 @@ def build_execution_report(app_type: str) -> dict:
         "runnable_level": runnable_level,
         # 工厂侧能力执行就绪（精确到 operation）
         "capability_runtime": cap_runtime,
-        # 生成的小程序自身运行就绪（当前一律 false，诚实）
-        "app_runtime": _app_runtime_false(app_type),
+        # 生成的小程序自身运行就绪（按 app_type + provider 真实判断）
+        "app_runtime": _app_runtime(app_type, cap_runtime, missing),
         # runtime 任务模型声明（供 image/OCR/speech/video 复用同一模式）
         "task_model": _task_model_spec(),
     }
 
 
-def _app_runtime_false(app_type: str) -> dict:
-    """生成的小程序自身是否能真跑。当前全部 false 并说明原因。"""
+def _app_runtime(app_type: str, cap_runtime: dict, missing: list[str]) -> dict:
+    """生成的小程序自身是否能真跑。
+
+    image_ai：当 image.process 已接入且有真接通 operation（remove_background）时 = true，
+    因为生成的小程序前端已真实调用 runtime image API（create/poll/result）。
+    其余 app_type：前端尚未真实接 runtime，保持 false 并说明。
+    """
+    if app_type == "image_ai":
+        img = cap_runtime.get("image.process", {})
+        if "image.process" not in missing and img.get("executable_operations"):
+            return {
+                "runnable": True,
+                "operations": img.get("executable_operations", []),
+                "reason": ("image provider 已接入，生成的小程序前端通过 /api/runtime/image/tasks "
+                           "真实调用 create→poll→result，可真跑 remove_background。"),
+            }
+        return {
+            "runnable": False,
+            "reason": ("image 能力未接入 provider（配置 IMAGE_API_BASE+IMAGE_API_KEY 或 IMAGE_PROVIDER=mock）；"
+                       "未接入前生成的小程序可上架但不能真跑。"),
+        }
     return {
         "runnable": False,
-        "reason": ("生成的小程序为可构建/可上架骨架，其前端调用的后端能力接口（/api/*）"
-                   "尚未由真实 provider + runtime 链路支撑；接入对应能力 provider 后方可真跑。"),
+        "reason": ("生成的小程序为可构建/可上架骨架，其前端调用的能力接口尚未真实接 runtime；"
+                   "本轮仅打通 image_ai。"),
     }
 
 
