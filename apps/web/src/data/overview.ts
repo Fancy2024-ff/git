@@ -12,6 +12,7 @@ export interface OverviewInput {
   pipelineReport: any | null
   classification?: any | null
   runtime?: any | null
+  executionReport?: any | null
 }
 
 export interface NextAction {
@@ -158,20 +159,32 @@ export interface CapabilityOverview {
   requiredCapabilities: string[]
   configuredCapabilities: string[]
   missingCapabilities: string[]
+  /** 工厂侧能力执行就绪（capability_runtime）vs 生成小程序自身能跑（app_runtime）——诚实区分 */
+  factoryCapabilityReady: boolean
+  appRuntimeRunnable: boolean
+  appRuntimeReason: string
 }
 
 export function capabilityOverview(input: OverviewInput): CapabilityOverview | null {
   const c = input.classification
   const r = input.runtime
-  if (!c && !r) return null
+  const ex = input.executionReport
+  if (!c && !r && !ex) return null
+  const capRuntime = ex?.capability_runtime || {}
+  const factoryReady = Object.values(capRuntime).some(
+    (v: any) => Array.isArray(v?.executable_operations) && v.executable_operations.length > 0
+  )
   return {
-    appType: c?.app_type ?? null,
+    appType: c?.app_type ?? ex?.app_type ?? null,
     feasibility: c?.miniapp_feasibility ?? null,
     confidence: c?.app_type_confidence ?? null,
-    runnableLevel: r?.runnable_level ?? null,
+    runnableLevel: r?.runnable_level ?? ex?.runnable_level ?? null,
     runtimeReady: !!r?.runtime_ready,
-    requiredCapabilities: c?.required_capabilities ?? [],
-    configuredCapabilities: r?.configured_capabilities ?? [],
-    missingCapabilities: r?.missing_capabilities ?? [],
+    requiredCapabilities: c?.required_capabilities ?? ex?.required_capabilities ?? [],
+    configuredCapabilities: r?.configured_capabilities ?? ex?.configured_capabilities ?? [],
+    missingCapabilities: r?.missing_capabilities ?? ex?.missing_capabilities ?? [],
+    factoryCapabilityReady: factoryReady,
+    appRuntimeRunnable: !!ex?.app_runtime?.runnable,
+    appRuntimeReason: ex?.app_runtime?.reason ?? '',
   }
 }

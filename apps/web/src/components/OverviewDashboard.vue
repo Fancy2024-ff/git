@@ -25,6 +25,7 @@ const input = computed(() => ({
   pipelineReport: art.value['pipeline-report.json'] || null,
   classification: art.value['app-classification.json'] || null,
   runtime: art.value['runtime-capability-status.json'] || null,
+  executionReport: art.value['runtime-execution-report.json'] || null,
 }))
 
 const cap = computed(() => capabilityOverview(input.value))
@@ -105,6 +106,18 @@ const guideSteps = [
           <span v-for="c in cap.missingCapabilities" :key="c" class="cap-chip cap-chip--miss">{{ capabilityName(c) }} 未接入</span>
         </span>
         <span v-else class="cap-value tone--green">无（能力齐备）</span>
+      </div>
+      <div class="cap-cell cap-cell--wide">
+        <span class="cap-label">运行就绪（诚实区分）</span>
+        <span class="cap-runtime-line">
+          <span class="rt-tag" :class="cap.factoryCapabilityReady ? 'tone--green' : 'tone--orange'">
+            工厂侧能力执行：{{ cap.factoryCapabilityReady ? '可执行' : '未就绪' }}
+          </span>
+          <span class="rt-tag" :class="cap.appRuntimeRunnable ? 'tone--green' : 'tone--orange'">
+            生成的小程序自身运行：{{ cap.appRuntimeRunnable ? '可真跑' : '未就绪' }}
+          </span>
+        </span>
+        <span v-if="!cap.appRuntimeRunnable && cap.appRuntimeReason" class="cap-sub">{{ cap.appRuntimeReason }}</span>
       </div>
     </section>
 
@@ -226,6 +239,8 @@ const guideSteps = [
 .cap-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
 .cap-chip { font-size: 12px; padding: 3px 10px; border-radius: 980px; }
 .cap-chip--miss { background: var(--color-orange-subtle); color: #92400e; }
+.cap-runtime-line { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.rt-tag { font-size: 13px; font-weight: 600; padding: 3px 10px; border-radius: 980px; background: rgba(0,0,0,0.03); }
 
 /* Cards */
 .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }

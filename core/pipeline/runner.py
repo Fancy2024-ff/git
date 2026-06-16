@@ -2318,6 +2318,17 @@ def _write_capability_reports(app_type: str, required_caps: list[str],
     }
     _write(output_dir / "runtime-capability-status.json",
            json.dumps(runtime, ensure_ascii=False, indent=2))
+
+    # L4 runtime 执行层：写 runtime-execution-report.json（capability_runtime vs app_runtime 诚实区分）
+    try:
+        from runtime.status import build_execution_report
+        exec_report = build_execution_report(app_type)
+        _write(output_dir / "runtime-execution-report.json",
+               json.dumps(exec_report, ensure_ascii=False, indent=2))
+    except Exception as e:
+        _write(output_dir / "runtime-execution-report.json",
+               json.dumps({"app_type": app_type, "error": _safe_error(e)},
+                          ensure_ascii=False, indent=2))
     return runtime
 
 

@@ -28,6 +28,7 @@ export const DELIVERABLES: DeliverableDef[] = [
   { key: 'qa-report.json', name: 'QA 报告', kind: 'engineering', purpose: '安装/构建/编码校验结果', usage: '构建失败时查看 checks 字段', copyMode: 'content' },
   { key: 'generator-capability-report.json', name: '能力生成报告', kind: 'engineering', purpose: '所选模板 / 所需能力 / 缺失能力 / 运行等级', usage: '确认生成的小程序用对了模板、缺哪些能力', copyMode: 'content' },
   { key: 'runtime-capability-status.json', name: '运行能力状态', kind: 'engineering', purpose: 'runnable_level / 缺失能力 / 下一步', usage: '判断小程序能不能真实运行', copyMode: 'content' },
+  { key: 'runtime-execution-report.json', name: '运行执行报告', kind: 'engineering', purpose: '工厂侧能力执行就绪 vs 生成小程序自身运行就绪（诚实区分）+ 任务模型', usage: '区分“工厂能调能力”和“小程序自己能跑”', copyMode: 'content' },
   { key: 'pipeline-report.json', name: '流水线报告', kind: 'engineering', purpose: '完整执行步骤与状态', usage: '排查每一步耗时与结果', copyMode: 'content' },
   // 上架
   { key: 'listing-materials.md', name: '上架材料', kind: 'listing', purpose: '平台提交所需文案/隐私政策', usage: '查看详情，提交时复制使用', copyMode: 'content' },

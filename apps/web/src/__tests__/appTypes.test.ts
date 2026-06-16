@@ -59,4 +59,18 @@ describe('capabilityOverview', () => {
     expect(o!.runtimeReady).toBe(true)
     expect(o!.missingCapabilities).toEqual([])
   })
+
+  it('诚实区分：工厂侧能力可执行 但 生成小程序自身不可跑', () => {
+    const o = capabilityOverview(base({
+      classification: { app_type: 'text_ai', required_capabilities: ['text.generate'] },
+      executionReport: {
+        app_type: 'text_ai',
+        capability_runtime: { 'text.generate': { executable_operations: ['generate', 'chat'] } },
+        app_runtime: { runnable: false, reason: '生成的小程序调用的 /api/* 尚未由真实 provider 支撑' },
+      },
+    }))
+    expect(o!.factoryCapabilityReady).toBe(true)    // 工厂侧可执行
+    expect(o!.appRuntimeRunnable).toBe(false)       // 小程序自身不可跑（不偷换）
+    expect(o!.appRuntimeReason).toContain('provider')
+  })
 })
