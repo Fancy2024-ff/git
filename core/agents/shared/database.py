@@ -1,6 +1,8 @@
 """Database layer for pipeline state persistence."""
 
 import json
+import os
+import tempfile
 from pathlib import Path
 from datetime import datetime
 from filelock import FileLock
@@ -14,16 +16,38 @@ DB_LOCK = FileLock(str(DB_FILE) + ".lock", timeout=10)
 
 
 def _load_db() -> dict:
-    """Load the JSON database."""
+    """Load the JSON database. Tolerates a corrupt/partial file by resetting."""
     if DB_FILE.exists():
-        return json.loads(DB_FILE.read_text(encoding="utf-8"))
+        try:
+            return json.loads(DB_FILE.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, ValueError):
+            # File was left truncated by a crash mid-write — start fresh rather
+            # than propagating a parse error to every caller.
+            return {"projects": {}}
     return {"projects": {}}
 
 
 def _save_db(db: dict) -> None:
-    """Save the JSON database."""
+    """Save the JSON database atomically (write temp + os.replace).
+
+    A crash mid-write leaves the original file intact instead of a truncated,
+    unparseable file.
+    """
     DB_FILE.parent.mkdir(parents=True, exist_ok=True)
-    DB_FILE.write_text(json.dumps(db, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    payload = json.dumps(db, ensure_ascii=False, indent=2, default=str)
+    fd, tmp_path = tempfile.mkstemp(dir=str(DB_FILE.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, DB_FILE)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def save_project(project: MiniAppProject) -> None:

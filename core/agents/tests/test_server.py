@@ -82,6 +82,20 @@ def test_path_traversal_returns_403(server_client, auth_headers):
     assert res.status_code == 200
 
 
+def test_job_id_traversal_blocked_on_detail_and_download(server_client, auth_headers):
+    """job_id itself must not escape OUTPUTS_DIR (get_job_detail / download)."""
+    client, _ = server_client
+    # '..' as job_id would resolve to DATA_DIR without the containment guard.
+    for path in (
+        "/api/jobs/..",
+        "/api/jobs/%2e%2e/download",
+    ):
+        res = client.get(path, headers=auth_headers)
+        # 403 (blocked) or 404 (not a dir) are both acceptable; never 200 with
+        # contents from outside outputs/.
+        assert res.status_code in (403, 404), f"{path} -> {res.status_code}"
+
+
 # ---------------------------------------------------------------------------
 # P2-2: Pipeline timeout test
 # ---------------------------------------------------------------------------
@@ -114,7 +128,7 @@ def test_pipeline_timeout_kills_subprocess(server_client, auth_headers, monkeypa
 
     # Run the stream function which should hit the timeout
     loop = asyncio.new_event_loop()
-    loop.run_until_complete(server._stream_pipeline_output("timeout-test"))
+    loop.run_until_complete(server._stream_pipeline_output("timeout-test", proc))
     loop.close()
 
     # Process should be killed — wait for reaping

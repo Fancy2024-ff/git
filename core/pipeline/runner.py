@@ -242,17 +242,17 @@ def _fetch_live_apps() -> list[dict]:
             "app_id": app.app_id,
             "source": app.source.value if hasattr(app.source, 'value') else str(app.source),
             "category": app.category,
-            "description": app.description[:300],
-            "description_cn": app.description[:300],
-            "downloads": app.downloads,
-            "rating": app.rating,
+            "description": (app.description or "")[:300],
+            "description_cn": (app.description or "")[:300],
+            "downloads": app.downloads or 0,
+            "rating": app.rating or 0.0,
             "review_count": 0,
             "features": app.features if hasattr(app, 'features') else [],
             "monetization": "freemium",
         })
 
-    # Sort by downloads, take top 10
-    all_apps.sort(key=lambda a: a.get("downloads", 0), reverse=True)
+    # Sort by downloads, take top 10 (coerce None to 0 defensively)
+    all_apps.sort(key=lambda a: a.get("downloads") or 0, reverse=True)
     top_apps = all_apps[:10]
     print(f"  [Live] 合并去重后 Top 10:")
     for a in top_apps:
@@ -329,9 +329,14 @@ def gap_check_agent(app: dict) -> dict:
     if registry_file.exists():
         reg_list = json.loads(registry_file.read_text(encoding="utf-8-sig"))
         for p in reg_list:
-            if p["status"] == "active":
+            # Registry is external/editable data — tolerate entries missing
+            # status/id rather than crashing the whole pipeline.
+            if not p.get("id"):
+                continue
+            status = p.get("status")
+            if status == "active":
                 active_platforms.append(p)
-            elif p["status"] == "research_needed":
+            elif status == "research_needed":
                 research_platforms.append(p)
     else:
         # Fallback if registry doesn't exist

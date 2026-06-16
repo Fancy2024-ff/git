@@ -98,6 +98,20 @@ pipeline_logs: deque[str] = deque(maxlen=MAX_LOG_LINES)
 # WebSocket clients keyed by job_id (or "__global__" for legacy)
 ws_clients: dict[str, list[WebSocket]] = {}
 
+
+def _safe_job_dir(job_id: str) -> Path:
+    """Resolve OUTPUTS_DIR/job_id and guarantee it stays inside OUTPUTS_DIR.
+
+    Defends against traversal job_ids like '..' or 'a/../../etc'. Returns the
+    resolved path; raises 403 if it would escape the outputs root.
+    """
+    job_dir = (OUTPUTS_DIR / job_id).resolve()
+    try:
+        job_dir.relative_to(OUTPUTS_DIR.resolve())
+    except ValueError:
+        raise HTTPException(403, "Access denied")
+    return job_dir
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -239,23 +253,29 @@ async def pipeline_start(req: PipelineStartRequest = PipelineStartRequest()):
         env=env,
     )
 
-    asyncio.create_task(_stream_pipeline_output(job_id))
+    asyncio.create_task(_stream_pipeline_output(job_id, pipeline_process))
 
     return {"accepted": True, "job_id": job_id, "mode": req.mode}
 
-async def _stream_pipeline_output(job_id: str):
-    """Read pipeline stdout line by line, broadcast via WebSocket. Kill on timeout."""
+async def _stream_pipeline_output(job_id: str, proc: subprocess.Popen):
+    """Read pipeline stdout line by line, broadcast via WebSocket. Kill on timeout.
+
+    Operates on the local `proc` handle (not the global) so a later job that
+    replaces `pipeline_process` is never affected by this task's lifecycle —
+    in particular the finally block only clears the global if it still points
+    at THIS process.
+    """
     global pipeline_process
 
     loop = asyncio.get_running_loop()
     started_at = _time.time()
 
     try:
-        while pipeline_process and pipeline_process.poll() is None:
+        while proc.poll() is None:
             # Total timeout check
             elapsed = _time.time() - started_at
             if elapsed > PIPELINE_TIMEOUT:
-                pipeline_process.kill()
+                proc.kill()
                 await _broadcast({"type": "pipeline_failed", "job_id": job_id, "error": f"Timeout ({PIPELINE_TIMEOUT}s)", "success": False}, job_id=job_id)
                 return
 
@@ -265,7 +285,7 @@ async def _stream_pipeline_output(job_id: str):
             line_timeout = min(30.0, max(0.5, remaining))
             try:
                 line = await asyncio.wait_for(
-                    loop.run_in_executor(None, pipeline_process.stdout.readline),
+                    loop.run_in_executor(None, proc.stdout.readline),
                     timeout=line_timeout,
                 )
             except asyncio.TimeoutError:
@@ -292,7 +312,7 @@ async def _stream_pipeline_output(job_id: str):
             await _broadcast({"type": "step_log", "data": line, "job_id": job_id, "message": line}, job_id=job_id)
 
         # Pipeline finished
-        exit_code = pipeline_process.returncode if pipeline_process else -1
+        exit_code = proc.returncode
         success = exit_code == 0
         try:
             await _broadcast({"type": "pipeline_finished", "job_id": job_id, "success": success}, job_id=job_id)
@@ -301,8 +321,10 @@ async def _stream_pipeline_output(job_id: str):
     finally:
         _flush_logs_to_disk(job_id)
         ws_clients.pop(job_id, None)
-        if pipeline_process is not None:
-            pipeline_process = None  # Idempotent fallback if stop didn't clear it
+        # Only clear the global if it STILL refers to our process. A newer job
+        # may have replaced it after ours exited — never null out its handle.
+        if pipeline_process is proc:
+            pipeline_process = None
 
 
 @app.get("/health")
@@ -454,7 +476,7 @@ def get_latest_job():
 @app.get("/api/jobs/{job_id}", dependencies=[Depends(verify_api_key)])
 def get_job_detail(job_id: str):
     """Full details for a specific job."""
-    job_dir = OUTPUTS_DIR / job_id
+    job_dir = _safe_job_dir(job_id)
     if not job_dir.exists():
         raise HTTPException(404, "Job not found")
 
@@ -489,10 +511,10 @@ def get_job_detail(job_id: str):
 @app.get("/api/jobs/{job_id}/artifact", dependencies=[Depends(verify_api_key)])
 def get_job_artifact(job_id: str, file: str):
     """Read a specific artifact file from a job."""
-    job_dir = OUTPUTS_DIR / job_id
+    job_dir = _safe_job_dir(job_id)
     file_path = job_dir / file
 
-    # Security: path must resolve within job_dir
+    # Security: file must also resolve within job_dir (defends against ../ in `file`)
     try:
         file_path.resolve().relative_to(job_dir.resolve())
     except ValueError:
@@ -710,7 +732,7 @@ def download_job(job_id: str):
 
     MAX_ZIP_SIZE = 100 * 1024 * 1024  # 100MB
 
-    job_dir = OUTPUTS_DIR / job_id
+    job_dir = _safe_job_dir(job_id)
     if not job_dir.exists():
         raise HTTPException(404, "Job not found")
 
@@ -728,17 +750,22 @@ def download_job(job_id: str):
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
     tmp.close()
 
-    with zipfile.ZipFile(tmp.name, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for f in files_to_zip:
-            arcname = str(f.relative_to(job_dir))
-            zf.write(f, arcname)
-
-    # BackgroundTask to clean up temp file after response is sent
     def cleanup():
         try:
             os.unlink(tmp.name)
         except Exception:
             pass
+
+    # If zipping fails partway, clean up the temp file before propagating —
+    # otherwise the BackgroundTask is never attached and the file leaks.
+    try:
+        with zipfile.ZipFile(tmp.name, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for f in files_to_zip:
+                arcname = str(f.relative_to(job_dir))
+                zf.write(f, arcname)
+    except Exception:
+        cleanup()
+        raise
 
     return FileResponse(
         tmp.name,

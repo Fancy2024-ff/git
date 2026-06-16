@@ -44,6 +44,23 @@ def test_coverage_level_thresholds(pipe, downloads, expect_wechat):
     assert wechat["coverage_level"] == expect_wechat
 
 
+def test_gap_check_tolerates_malformed_registry(pipe, tmp_path, monkeypatch):
+    """A registry entry missing status/id must not crash the whole pipeline."""
+    platforms_dir = tmp_path / "platforms"
+    platforms_dir.mkdir(parents=True)
+    # Mix of: valid active, entry missing 'status', entry missing 'id'.
+    (platforms_dir / "platform-registry.json").write_text(json.dumps([
+        {"id": "wechat", "status": "active", "name_cn": "微信"},
+        {"id": "broken_no_status", "name_cn": "坏的"},
+        {"status": "active", "name_cn": "无 id"},
+    ]), encoding="utf-8")
+    monkeypatch.setattr(pipe, "DATA_DIR", tmp_path)
+
+    gap = pipe.gap_check_agent(_app(4_000_000))  # must not raise
+    # Only the well-formed active entry is counted.
+    assert [p["platform"] for p in gap["platforms_checked"]] == ["wechat"]
+
+
 # --- P1-5: pipeline-report never stays 'running' on failure -----------------
 
 def test_report_failure_state(pipe, tmp_path):

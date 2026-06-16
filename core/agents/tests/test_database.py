@@ -44,3 +44,20 @@ def test_save_updates_existing(db):
     db.save_project(MiniAppProject(id="x", app_name="New"))
     assert db.get_project("x").app_name == "New"
     assert len(db.list_projects()) == 1
+
+
+def test_corrupt_db_file_recovers_instead_of_crashing(db):
+    """A truncated/partial DB file must not break every subsequent call."""
+    db.DB_FILE.write_text('{"projects": {"p1": {"id": "p1"', encoding="utf-8")  # truncated JSON
+    # _load_db should treat it as empty rather than raising JSONDecodeError.
+    assert db.list_projects() == []
+    # And a fresh save still works on top of the reset.
+    db.save_project(MiniAppProject(id="ok", app_name="Recovered"))
+    assert db.get_project("ok").app_name == "Recovered"
+
+
+def test_save_is_atomic_no_tmp_leftover(db):
+    """Atomic write must not leave .tmp files behind in the DB directory."""
+    db.save_project(MiniAppProject(id="p1", app_name="A"))
+    leftovers = list(db.DB_FILE.parent.glob("*.tmp"))
+    assert leftovers == [], f"temp files leaked: {leftovers}"
