@@ -441,7 +441,7 @@ def opportunity_score_agent(app: dict, analysis: dict, gap: dict) -> dict:
     if "Health" in app.get("category", ""):
         risk_score = 50
 
-    # 综合评分
+    # 综合评分 需求 25% + 缺口 25% + 适配度 20% + 实现难度 15% + 风险 15% 
     weights = {"demand": 0.25, "gap": 0.25, "fit": 0.20, "impl": 0.15, "risk": 0.15}
     total_score = round(
         demand_score * weights["demand"]
@@ -1768,6 +1768,71 @@ def _write(path: Path, content: str):
         f.write(content)
 
 
+def _safe_error(e: Exception) -> str:
+    """脱敏的错误摘要：不回显 key/url 等敏感串，截断长度。"""
+    msg = f"{type(e).__name__}: {e}"
+    return msg[:300]
+
+
+def _apply_llm_demand_analysis(best_app: dict, analysis: dict, output_dir: Path) -> None:
+    """路线 B：USE_LLM=true 时调用 LLM 增强需求分析，写 ai-demand-analysis.json，
+    并把 llm_used/llm_fallback/ai_summary/ai_analysis_path 写回 analysis（就地修改）。
+
+    设计原则（老板要的"稳定优先"）：
+    - USE_LLM=false：标记 llm_used=false，不调 LLM，不生成 ai 文件
+    - 成功：写 ai-demand-analysis.json，analysis 带上 ai_summary
+    - 失败：标记 llm_fallback=true + 错误，但 pipeline 继续，demand_score 不动
+    本函数永不抛异常。
+    """
+    # 默认值：无论哪条路径，analysis 都带上这组字段，前端/下游字段稳定。
+    analysis.setdefault("llm_used", False)
+    analysis.setdefault("llm_fallback", False)
+    analysis.setdefault("ai_summary", "")
+    analysis.setdefault("ai_analysis_path", None)
+
+    # 读 USE_LLM（运行时读，便于测试 monkeypatch settings）
+    try:
+        sys.path.insert(0, str(PROJECT_ROOT / "core" / "agents"))
+        from config import settings
+        use_llm = bool(getattr(settings, "USE_LLM", False))
+    except Exception:
+        use_llm = False
+
+    if not use_llm:
+        # USE_LLM=false：生成一个轻量标记文件，明确说明（文档里有约定）
+        _write(output_dir / "ai-demand-analysis.json",
+               json.dumps({"llm_used": False, "reason": "USE_LLM=false"},
+                          ensure_ascii=False, indent=2))
+        return
+
+    try:
+        from research.demand_llm import run_llm_demand_analysis
+        ai = run_llm_demand_analysis(best_app)
+        _write(output_dir / "ai-demand-analysis.json",
+               json.dumps(ai, ensure_ascii=False, indent=2))
+        analysis["llm_used"] = True
+        analysis["llm_fallback"] = False
+        analysis["ai_summary"] = ai.get("reasoning_summary", "")
+        analysis["ai_analysis_path"] = "ai-demand-analysis.json"
+        # 用 AI 的解释增强 reasons（保守：只补，不改 demand_score）
+        if ai.get("reasoning_summary"):
+            analysis.setdefault("reasons", [])
+            analysis["reasons"] = list(analysis.get("reasons", [])) + [f"AI: {ai['reasoning_summary']}"]
+        p(f"  [LLM] 需求分析完成（model={ai.get('model','')}, confidence={ai.get('confidence',0)}）")
+    except Exception as e:
+        err = _safe_error(e)
+        analysis["llm_used"] = False
+        analysis["llm_fallback"] = True
+        analysis["ai_summary"] = "LLM failed, fallback to rule-based analysis"
+        analysis["ai_analysis_path"] = None
+        analysis["llm_error"] = err
+        _write(output_dir / "ai-demand-analysis.json",
+               json.dumps({"llm_used": False, "llm_fallback": True, "error": err,
+                           "reason": "LLM failed, fallback to rule-based analysis"},
+                          ensure_ascii=False, indent=2))
+        p(f"  [LLM] 调用失败，已 fallback 到规则分析：{err}")
+
+
 # ═══════════════════════════════════════════════════════════════
 # MAIN PIPELINE
 # ═══════════════════════════════════════════════════════════════
@@ -1863,6 +1928,10 @@ def _run_pipeline_steps(mode: str, job_id: str, output_dir: Path) -> dict:
     scored.sort(key=lambda x: x[1]["demand_score"], reverse=True)
     best_app, best_analysis = scored[0]
     p(f"\n  ★ 选中：{best_app['name_cn']}（评分 {best_analysis['demand_score']}）")
+
+    # --- 路线 B：USE_LLM=true 时用 LLM 增强需求分析（仅补解释，不改 demand_score）---
+    # 失败必 fallback 到上面的规则分析，绝不让 pipeline 崩。
+    _apply_llm_demand_analysis(best_app, best_analysis, output_dir)
 
     _write(output_dir / "candidate.json", json.dumps(best_app, ensure_ascii=False, indent=2))
     _write(output_dir / "analysis.json", json.dumps(best_analysis, ensure_ascii=False, indent=2))

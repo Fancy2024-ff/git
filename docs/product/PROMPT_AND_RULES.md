@@ -69,3 +69,14 @@ core/agents/ 目录下的 Agent 使用 LangChain + Claude API:
 1. 配置 ANTHROPIC_API_KEY
 2. 修改 core/pipeline/runner.py 对应步骤调用 core/agents/ 下的函数
 3. 或切换到 core/agents/orchestrator/pipeline.py (LangGraph 版本)
+
+## USE_LLM 开关（已接入：第 2 步需求分析）
+
+`USE_LLM=true` 时，流水线第 2 步在规则评分之外，额外调用 LLM 生成可解释的需求分析
+（`ai-demand-analysis.json`：目标用户/痛点/可复刻功能/不可复刻功能/MVP 范围/风险/置信度）。
+
+- 默认 `USE_LLM=false`：只走规则分析（`demand_analysis_agent`），demo 离线稳定。
+- `USE_LLM=true` 但 LLM 失败：自动 fallback 到规则分析，`analysis.json` 标记 `llm_fallback=true`，
+  pipeline 不中断，下游 QA/构建不受影响。
+- Prompt 原文与“分析不准改哪里”：见 [LLM_DEMAND_ANALYSIS_PROMPT.md](LLM_DEMAND_ANALYSIS_PROMPT.md)。
+- 实现：`core/agents/research/demand_llm.py`（prompt+schema）、`core/pipeline/runner.py` → `_apply_llm_demand_analysis`。

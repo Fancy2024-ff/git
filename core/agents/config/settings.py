@@ -21,6 +21,9 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "claude-sonnet-4-6")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.3"))
+# 是否启用 LLM 增强（目前仅作用于第 2 步需求分析）。默认 false：保证 demo 离线稳定。
+# true 时第 2 步会调用 LLM 生成 ai-demand-analysis.json；失败自动 fallback 到规则分析。
+USE_LLM = os.getenv("USE_LLM", "false").strip().lower() in ("1", "true", "yes", "on")
 
 # Data sources
 QIMAI_API_KEY = os.getenv("QIMAI_API_KEY", "")  # 七麦 API
