@@ -133,6 +133,7 @@ async function startPipeline() {
           }
           if (msg.type === 'step_started') {
             const step: PipelineStep = {
+              step: msg.step || msg.name || '',
               name: msg.step || msg.name || '',
               agent: msg.agent || msg.step || '',
               status: 'running',

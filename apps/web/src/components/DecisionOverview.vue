@@ -18,10 +18,6 @@ const submissionReadiness = computed(() => {
   return props.job?.artifacts?.['submission-readiness-report.json'] || null
 })
 
-const qaReport = computed(() => {
-  return props.job?.artifacts?.['qa-report.json'] || null
-})
-
 const completionItems = computed(() => {
   if (!pipelineReport.value?.steps) return []
   return pipelineReport.value.steps.map((s: any) => ({
@@ -68,8 +64,8 @@ const nextActions = computed(() => {
           >{{ opportunity.recommendation || '待评估' }}</span>
         </div>
         <div v-if="opportunity.reasons?.length" class="reasons">
-          <div v-for="(r, i) in opportunity.reasons" :key="i" class="reason-item">
-            <span class="reason-bullet">{{ i + 1 }}.</span>
+          <div v-for="(r, i) in (opportunity.reasons as string[])" :key="i" class="reason-item">
+            <span class="reason-bullet">{{ (i as number) + 1 }}.</span>
             <span>{{ r }}</span>
           </div>
         </div>

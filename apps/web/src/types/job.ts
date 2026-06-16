@@ -18,6 +18,7 @@ export interface JobDetail {
 }
 
 export interface PipelineStep {
+  step: string
   name: string
   agent: string
   status: string

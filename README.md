@@ -19,7 +19,7 @@ Agent 驱动的小程序批量生产系统。自动发现 App Store / Google Pla
 ### 运行 Demo Pipeline
 
 ```bash
-python scripts/run_demo_pipeline.py
+python core/pipeline/runner.py
 ```
 
 执行后生成：
@@ -43,9 +43,8 @@ data/outputs/{jobId}/
 ### 启动后端 API
 
 ```bash
-cd agents
-pip install -e ".[dev]"
-python server.py
+pip install -e core/agents/[dev]
+python apps/api/main.py
 ```
 
 后端运行在 http://localhost:8000
@@ -53,7 +52,7 @@ python server.py
 ### 启动前端 Dashboard
 
 ```bash
-cd dashboard
+cd apps/web
 npm install
 npm run dev
 ```
@@ -72,25 +71,32 @@ npm run dev
 
 ```
 miniapp-factory/
-  scripts/
-    run_demo_pipeline.py    - MVP 演示流水线（核心入口）
-  agents/
-    server.py               - FastAPI 后端（认证、WS、Pipeline 管理）
-    config/settings.py      - 配置
-    shared/                 - 数据模型、LLM 封装、数据库
-    discovery/              - 发现 Agent（去重、gap 检测）
-    research/               - 分析 Agent
-    coding/                 - 代码生成 Agent
-    qa/                     - 质检 Agent（src/ 路径校验）
-    publisher/              - 上架 Agent
-    review/                 - 复盘 Agent
-    orchestrator/           - LangGraph 流水线
-    tests/                  - pytest 测试套件（26 cases）
-  dashboard/                - Vue 3 前端（WS 实时推送）
-  generator/                - Node.js 代码生成服务（生产鉴权）
+  apps/                       - 对外应用层
+    api/main.py               - FastAPI 后端（认证、WS、Pipeline 管理）
+    web/                      - Vue 3 前端（WS 实时推送）
+  core/                       - 核心业务逻辑
+    pipeline/runner.py        - MVP 演示流水线（核心入口，规则+模板）
+    agents/                   - LLM Agent 模块 + 共享代码
+      config/settings.py      - 配置
+      shared/                 - 数据模型、LLM 封装、数据库
+      discovery/              - 发现 Agent（去重、gap 检测）
+      research/               - 分析 Agent
+      coding/                 - 代码生成 Agent
+      qa/                     - 质检 Agent（src/ 路径校验）
+      publisher/              - 上架 Agent
+      review/                 - 复盘 Agent
+      orchestrator/           - LangGraph 编排（可选 LLM 链路）
+      run_pipeline.py         - LangGraph 链路入口（需 langgraph + API key）
+      tests/                  - pytest 测试套件（26 cases）
+        manual/               - LLM 手动冒烟脚本（需 API key，不参与 CI）
+    generator/                - Node.js 代码生成服务（生产鉴权）
+    publisher/                - Telegram 自动上架
+  infra/docker/               - 三个 Dockerfile
   data/
-    samples/apps.json       - 候选 App 数据
-    outputs/                - 每次运行的产物
+    inputs/demo/apps.json     - demo 候选 App 数据
+    inputs/real/apps.json     - 真实导入数据
+    platforms/                - 平台注册表
+    outputs/                  - 每次运行的产物
 ```
 
 ## Docker 部署（推荐）
@@ -134,17 +140,17 @@ Docker 实测状态（2026-06-14）：
 ## 运行测试
 
 ```bash
-# 后端 (agents) — 26 cases
-cd agents
+# 后端 (core/agents) — 26 cases
+cd core/agents
 pip install -e ".[dev]"
 pytest tests/ -q
 
-# 前端 (dashboard) — 4 cases
-cd dashboard
+# 前端 (apps/web) — 4 cases
+cd apps/web
 npm test -- --run
 
-# Generator — 5 cases
-cd generator
+# Generator (core/generator) — 5 cases
+cd core/generator
 npm test -- --run
 ```
 

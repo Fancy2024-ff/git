@@ -1,6 +1,7 @@
 """Pipeline tests: gap-check coverage scoring, report failure state, readiness, manifest.
 
-Loads the standalone scripts/run_demo_pipeline.py (stdlib-only, no LLM deps).
+Loads the standalone pipeline runner (stdlib-only, no LLM deps).
+The runner moved to core/pipeline/runner.py during the repo restructure.
 """
 
 import importlib.util
@@ -9,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "run_demo_pipeline.py"
+SCRIPT = Path(__file__).resolve().parents[3] / "core" / "pipeline" / "runner.py"
 
 
 @pytest.fixture(scope="module")

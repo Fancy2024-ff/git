@@ -14,7 +14,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Application code (new structure: config/settings + shared live under core/agents)
 COPY apps/ apps/
 COPY core/ core/
-COPY scripts/ scripts/
 COPY data/inputs/ data/inputs/
 COPY data/platforms/ data/platforms/
 

@@ -1,11 +1,14 @@
 """
-Run the miniapp-factory pipeline.
+Run the miniapp-factory pipeline (LangGraph orchestration variant).
 Entry point for executing the full Discovery → Research → Coding → Publisher flow.
 
+Requires: langgraph + ANTHROPIC_API_KEY (LLM-driven, separate from the
+rule/template demo pipeline at core/pipeline/runner.py).
+
 Usage:
-    python scripts/run_pipeline.py                  # Run one full cycle
-    python scripts/run_pipeline.py --discovery-only # Only run discovery
-    python scripts/run_pipeline.py --category photo # Search a specific category
+    python core/agents/run_pipeline.py                  # Run one full cycle
+    python core/agents/run_pipeline.py --discovery-only # Only run discovery
+    python core/agents/run_pipeline.py --category photo # Search a specific category
 """
 
 import sys
@@ -19,8 +22,8 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
-# Add agents/ to path so imports work
-sys.path.insert(0, str(Path(__file__).parent.parent / "core" / "agents"))
+# This file lives in core/agents/, so its own directory holds the agent modules.
+sys.path.insert(0, str(Path(__file__).parent))
 
 from rich.console import Console
 from rich.panel import Panel

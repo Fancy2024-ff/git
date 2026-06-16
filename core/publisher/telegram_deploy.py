@@ -327,7 +327,7 @@ def deploy_telegram(job_id: str, output_dir: Path, app_info: dict, opportunity: 
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run standalone: python scripts/deploy_telegram.py <job_id>"""
+    """Run standalone: python core/publisher/telegram_deploy.py <job_id>"""
     from dotenv import load_dotenv
     load_dotenv(PROJECT_ROOT / ".env")
 
@@ -344,7 +344,7 @@ if __name__ == "__main__":
     })
 
     if len(sys.argv) < 2:
-        print("Usage: python scripts/deploy_telegram.py <job_id>")
+        print("Usage: python core/publisher/telegram_deploy.py <job_id>")
         sys.exit(1)
 
     job_id = sys.argv[1]

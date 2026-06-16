@@ -1,9 +1,9 @@
 ﻿"""
 Demo Pipeline - 完整 MVP 闭环演示
-从 data/samples/apps.json 选择高需求 App → 全流程产出文件 → 打印人工待办
+从 data/inputs/demo/apps.json 选择高需求 App → 全流程产出文件 → 打印人工待办
 
 运行方式:
-    python scripts/run_demo_pipeline.py
+    python core/pipeline/runner.py --mode demo
 
 不依赖 LLM，使用本地规则和模板。
 """

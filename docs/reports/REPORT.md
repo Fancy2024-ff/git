@@ -2,7 +2,7 @@
 
 > 生成时间：2026-06-11
 > 运行环境：Windows 10 Pro / Python 3.11.9
-> 运行命令：`python scripts/run_demo_pipeline.py`
+> 运行命令：`python core/pipeline/runner.py`
 > 编码：所有文件 UTF-8 with BOM，Windows 下中文显示正常
 
 ---
@@ -10,7 +10,7 @@
 ## 1. Demo 命令
 
 ```bash
-python scripts/run_demo_pipeline.py
+python core/pipeline/runner.py
 ```
 
 无需 venv、无需 LLM、无需网络。系统自带 Python 3.11 即可执行。

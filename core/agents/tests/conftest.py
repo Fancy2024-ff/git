@@ -1,6 +1,7 @@
 """Shared pytest fixtures for the agents test suite."""
 
 import importlib
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -9,6 +10,21 @@ import pytest
 AGENTS_DIR = Path(__file__).resolve().parent.parent
 if str(AGENTS_DIR) not in sys.path:
     sys.path.insert(0, str(AGENTS_DIR))
+
+# The FastAPI app moved from agents/server.py to apps/api/main.py during the
+# repo restructure. Load it by file path under the legacy module name "server"
+# so the rest of the suite keeps working unchanged.
+REPO_ROOT = AGENTS_DIR.parent.parent
+API_MAIN = REPO_ROOT / "apps" / "api" / "main.py"
+
+
+def _load_server_module():
+    sys.modules.pop("server", None)
+    spec = importlib.util.spec_from_file_location("server", API_MAIN)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["server"] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 @pytest.fixture
@@ -22,9 +38,7 @@ def server_client(monkeypatch, tmp_path):
     monkeypatch.setenv("DASHBOARD_API_KEY", "secret123")
 
     # Import fresh so module-level env reads (DASHBOARD_API_KEY) take effect.
-    sys.modules.pop("server", None)
-    import server
-    importlib.reload(server)
+    server = _load_server_module()
 
     server.REAL_INPUTS_DIR = tmp_path / "real_inputs"
     server.OUTPUTS_DIR = tmp_path / "outputs"

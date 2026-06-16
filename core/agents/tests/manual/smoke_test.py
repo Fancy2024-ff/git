@@ -9,7 +9,8 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "core" / "agents"))
+# This file lives in core/agents/tests/manual/, parents[2] == core/agents
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from shared.llm import get_llm
 from shared.models import AppInfo, AppSource, GapOpportunity, MiniProgramPlatform

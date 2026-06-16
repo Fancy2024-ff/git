@@ -29,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "core" / "agents"))
 from config.settings import DATA_DIR
 
-SCRIPTS_DIR = REPO_ROOT / "scripts"
+PIPELINE_RUNNER = REPO_ROOT / "core" / "pipeline" / "runner.py"
 OUTPUTS_DIR = DATA_DIR / "outputs"
 PLATFORMS_DIR = DATA_DIR / "platforms"
 PLATFORM_AUTH_DIR = DATA_DIR / "platform-auth"
@@ -221,7 +221,7 @@ async def pipeline_start(req: PipelineStartRequest = PipelineStartRequest()):
     python_exe = sys.executable
     cmd = [
         python_exe, "-X", "utf8",
-        str(SCRIPTS_DIR / "run_demo_pipeline.py"),
+        str(PIPELINE_RUNNER),
         "--mode", req.mode,
         "--job-id", job_id,
     ]

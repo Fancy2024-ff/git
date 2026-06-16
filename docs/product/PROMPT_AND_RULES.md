@@ -2,11 +2,11 @@
 
 ## 当前实现方式
 
-主链路 `scripts/run_demo_pipeline.py` 使用本地规则，不依赖 LLM。
+主链路 `core/pipeline/runner.py` 使用本地规则，不依赖 LLM。
 
 ## 需求分析规则 (DemandAnalysisAgent)
 
-位置: `scripts/run_demo_pipeline.py:demand_analysis_agent`
+位置: `core/pipeline/runner.py:demand_analysis_agent`
 
 评分维度:
 - 下载量 (0-30): >5M=30, >2M=25, >500K=18, >100K=12, else=5
@@ -20,7 +20,7 @@
 
 ## 机会评分规则 (OpportunityScoreAgent)
 
-位置: `scripts/run_demo_pipeline.py:opportunity_score_agent`
+位置: `core/pipeline/runner.py:opportunity_score_agent`
 
 5维度:
 - demand (25%): 来自 DemandAnalysis
@@ -33,7 +33,7 @@
 
 ## 覆盖检查规则 (GapCheckAgent)
 
-位置: `scripts/run_demo_pipeline.py:gap_check_agent`
+位置: `core/pipeline/runner.py:gap_check_agent`
 
 逻辑:
 - 读取 platform-registry.json 中 status=active 的平台
@@ -44,7 +44,7 @@
 
 ## 代码生成模板 (CodegenAgent)
 
-位置: `scripts/run_demo_pipeline.py:codegen_agent`
+位置: `core/pipeline/runner.py:codegen_agent`
 模板: `generator/src/templates/base/` + `generator/src/templates/ai-tool/`
 
 逻辑:

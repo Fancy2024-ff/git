@@ -32,6 +32,8 @@ dev = [
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
+# manual/ holds LLM smoke scripts that need ANTHROPIC_API_KEY; not unit tests.
+norecursedirs = ["tests/manual"]
 
 [tool.ruff]
 line-length = 100
