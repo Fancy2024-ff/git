@@ -19,6 +19,13 @@ const drawerOpen = ref(true)
 
 const pipelineReport = computed(() => props.job?.artifacts?.['pipeline-report.json'])
 
+// 能力芯片：从 capability-registry-snapshot.json 读各能力配置状态
+const capabilities = computed(() => {
+  const snap = props.job?.artifacts?.['capability-registry-snapshot.json']
+  return snap?.capabilities || []
+})
+const classification = computed(() => props.job?.artifacts?.['app-classification.json'] || null)
+
 // 运行中优先用实时步骤；否则用报告里的步骤
 const steps = computed<PipelineStep[]>(() => {
   if (props.running && props.livePipelineSteps.length > 0) return props.livePipelineSteps
@@ -87,6 +94,15 @@ const selectedStep = computed(() => {
       <p class="empty-sub">点击右上角「启动试运行」后，这里会实时显示每一步</p>
     </div>
 
+    <!-- 能力状态芯片区 -->
+    <div v-if="capabilities.length" class="cap-strip">
+      <span v-if="classification" class="cap-type">当前类型：{{ classification.app_type }}</span>
+      <span v-for="c in capabilities" :key="c.capability_id"
+            class="cap-pill" :class="c.configured ? 'pill--ok' : 'pill--miss'">
+        {{ c.name_cn }}：{{ c.configured ? '已配置' : '未接入' }}
+      </span>
+    </div>
+
     <div v-else class="line-body">
       <div class="timeline-col">
         <AgentTimeline
@@ -133,8 +149,13 @@ const selectedStep = computed(() => {
 .empty-title { font-size: 18px; font-weight: 600; color: var(--color-text-1); }
 .empty-sub { font-size: 13px; color: var(--color-text-2); margin-top: 6px; }
 
-.line-body { display: grid; grid-template-columns: 300px 1fr; gap: 20px; min-height: 360px; }
-.timeline-col { overflow-y: auto; max-height: 520px; }
+.cap-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 16px; }
+.cap-type { font-size: 12px; font-weight: 600; color: var(--color-text-2); margin-right: 4px; }
+.cap-pill { font-size: 12px; padding: 4px 10px; border-radius: 980px; }
+.pill--ok { background: var(--color-green-subtle); color: #166534; }
+.pill--miss { background: rgba(0,0,0,0.05); color: var(--color-text-3); }
+
+.line-body { display: grid; grid-template-columns: 300px 1fr; gap: 20px; min-height: 360px; }.timeline-col { overflow-y: auto; max-height: 520px; }
 .detail-col { min-width: 0; }
 
 @media (max-width: 860px) {

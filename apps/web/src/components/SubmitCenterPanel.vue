@@ -43,6 +43,25 @@ const views = computed<PlatformSubmitView[]>(() => {
   })
 })
 
+// 能力等级横幅：区分 空壳可提交 / 可运行 / 缺能力
+const runtimeBanner = computed(() => {
+  const art = props.job?.artifacts || {}
+  const rt = art['runtime-capability-status.json']
+  const cls = art['app-classification.json']
+  if (!rt && !cls) return null
+  const level = rt?.runnable_level
+  let text = ''
+  let tone = 'gray'
+  if (rt?.runtime_ready) { text = '本项目能力齐备，可真实运行'; tone = 'green' }
+  else if (level === 'partially_runtime_ready') { text = '部分能力就绪，可上架但运行能力不完整'; tone = 'orange' }
+  else { text = '可上架空壳 / 可构建，但运行能力未接入（缺能力 API）'; tone = 'orange' }
+  return {
+    appType: cls?.app_type || '',
+    missing: rt?.missing_capabilities || [],
+    text, tone,
+  }
+})
+
 async function upload(v: PlatformSubmitView) {
   if (v.platform_id !== 'wechat' || !v.can_upload) return
   uploadingId.value = v.platform_id
@@ -64,6 +83,12 @@ async function upload(v: PlatformSubmitView) {
     <div class="header">
       <h2 class="title">上架中心</h2>
       <p class="subtitle">每个平台能不能上架、缺什么、下一步谁来做</p>
+    </div>
+
+    <div v-if="runtimeBanner" class="rt-banner" :class="'rt--' + runtimeBanner.tone">
+      <span class="rt-type" v-if="runtimeBanner.appType">{{ runtimeBanner.appType }}</span>
+      <span class="rt-text">{{ runtimeBanner.text }}</span>
+      <span v-if="runtimeBanner.missing.length" class="rt-miss">缺能力：{{ runtimeBanner.missing.join('、') }}</span>
     </div>
 
     <div v-if="loading" class="state-box">加载平台授权状态中…</div>
@@ -136,6 +161,14 @@ async function upload(v: PlatformSubmitView) {
 .header { margin-bottom: 20px; }
 .title { font-size: 24px; font-weight: 700; color: var(--color-text-1); }
 .subtitle { font-size: 13px; color: var(--color-text-2); margin-top: 4px; }
+
+.rt-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 16px; border-radius: var(--radius-md); margin-bottom: 16px; font-size: 13px; }
+.rt--green { background: var(--color-green-subtle); color: #166534; }
+.rt--orange { background: var(--color-orange-subtle); color: #92400e; }
+.rt--gray { background: rgba(0,0,0,0.04); color: var(--color-text-2); }
+.rt-type { font-weight: 600; padding: 2px 8px; border-radius: 980px; background: rgba(255,255,255,0.6); }
+.rt-text { font-weight: 500; }
+.rt-miss { font-size: 12px; opacity: 0.85; }
 
 .state-box { background: var(--color-surface-solid); border-radius: var(--radius-md); box-shadow: var(--shadow-card); padding: 32px; text-align: center; color: var(--color-text-2); font-size: 14px; }
 .state-box--err { color: #991b1b; }

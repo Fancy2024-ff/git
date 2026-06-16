@@ -18,6 +18,7 @@ export interface DeliverableDef {
 export const DELIVERABLES: DeliverableDef[] = [
   // 产品
   { key: 'candidate.json', name: '候选应用', kind: 'product', purpose: '筛选出的目标 App 信息', usage: '确认选中的应用是否符合预期', copyMode: 'content' },
+  { key: 'app-classification.json', name: '产品分类', kind: 'product', purpose: 'app_type / 适配度 / 所需能力 / 推荐平台', usage: '确认系统判断的产品类型是否正确', copyMode: 'content' },
   { key: 'opportunity-report.json', name: '机会评估', kind: 'product', purpose: '综合机会评分与推荐理由', usage: '用于说明“为什么值得做”', copyMode: 'content' },
   { key: 'prd.md', name: 'PRD 产品文档', kind: 'product', purpose: '小程序产品需求文档（可读版）', usage: '查看详情，确认产品方案', copyMode: 'content' },
   { key: 'prd.json', name: 'PRD（结构化）', kind: 'product', purpose: '结构化 PRD，供代码生成消费', usage: '工程消费，无需人工阅读', copyMode: 'content' },
@@ -25,6 +26,8 @@ export const DELIVERABLES: DeliverableDef[] = [
   { key: 'miniapp', name: '小程序源码', kind: 'engineering', purpose: '生成的完整 uni-app 项目', usage: '复制路径，用微信开发者工具导入', copyMode: 'path' },
   { key: 'dist', name: '构建产物', kind: 'engineering', purpose: '编译后的 mp-weixin 包', usage: '复制路径，导入即可预览', copyMode: 'path' },
   { key: 'qa-report.json', name: 'QA 报告', kind: 'engineering', purpose: '安装/构建/编码校验结果', usage: '构建失败时查看 checks 字段', copyMode: 'content' },
+  { key: 'generator-capability-report.json', name: '能力生成报告', kind: 'engineering', purpose: '所选模板 / 所需能力 / 缺失能力 / 运行等级', usage: '确认生成的小程序用对了模板、缺哪些能力', copyMode: 'content' },
+  { key: 'runtime-capability-status.json', name: '运行能力状态', kind: 'engineering', purpose: 'runnable_level / 缺失能力 / 下一步', usage: '判断小程序能不能真实运行', copyMode: 'content' },
   { key: 'pipeline-report.json', name: '流水线报告', kind: 'engineering', purpose: '完整执行步骤与状态', usage: '排查每一步耗时与结果', copyMode: 'content' },
   // 上架
   { key: 'listing-materials.md', name: '上架材料', kind: 'listing', purpose: '平台提交所需文案/隐私政策', usage: '查看详情，提交时复制使用', copyMode: 'content' },

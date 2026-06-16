@@ -3,8 +3,9 @@ import { computed } from 'vue'
 import type { JobDetail, PipelineMode } from '../types/job'
 import {
   computeOverallStatus, statusLabel, oneLineConclusion,
-  whyWorthIt, completionChecklist, blockers, nextActions,
+  whyWorthIt, completionChecklist, blockers, nextActions, capabilityOverview,
 } from '../data/overview'
+import { appTypeName, appTypeDesc, runnableLevelLabel, feasibilityLabel, capabilityName } from '../data/appTypes'
 
 const props = defineProps<{
   job: JobDetail | null
@@ -22,7 +23,11 @@ const input = computed(() => ({
   qa: art.value['qa-report.json'] || null,
   readiness: art.value['submission-readiness-report.json'] || null,
   pipelineReport: art.value['pipeline-report.json'] || null,
+  classification: art.value['app-classification.json'] || null,
+  runtime: art.value['runtime-capability-status.json'] || null,
 }))
+
+const cap = computed(() => capabilityOverview(input.value))
 
 const status = computed(() => computeOverallStatus(input.value))
 const statusBadge = computed(() => statusLabel(status.value))
@@ -67,6 +72,40 @@ const guideSteps = [
         <span v-if="recommendation" class="meta-chip strong">{{ recommendation }}</span>
       </div>
       <p class="hero-conclusion">{{ conclusion }}</p>
+    </section>
+
+    <!-- Capability summary: app_type / feasibility / runnable_level / missing caps -->
+    <section v-if="cap" class="cap-row">
+      <div class="cap-cell">
+        <span class="cap-label">App 类型</span>
+        <span class="cap-value">{{ appTypeName(cap.appType ?? undefined) }}</span>
+        <span class="cap-sub">{{ appTypeDesc(cap.appType ?? undefined) }}</span>
+      </div>
+      <div class="cap-cell">
+        <span class="cap-label">小程序适配度</span>
+        <span class="cap-value" :class="'tone--' + feasibilityLabel(cap.feasibility ?? undefined).tone">
+          {{ feasibilityLabel(cap.feasibility ?? undefined).text }}
+        </span>
+      </div>
+      <div class="cap-cell">
+        <span class="cap-label">运行能力等级</span>
+        <span class="cap-value" :class="'tone--' + runnableLevelLabel(cap.runnableLevel ?? undefined).tone">
+          {{ runnableLevelLabel(cap.runnableLevel ?? undefined).text }}
+        </span>
+      </div>
+      <div class="cap-cell">
+        <span class="cap-label">提交准备度</span>
+        <span class="cap-value" :class="input.readiness?.is_ready_to_submit ? 'tone--green' : 'tone--orange'">
+          {{ input.readiness?.is_ready_to_submit ? '可提交' : '待解决阻塞' }}
+        </span>
+      </div>
+      <div class="cap-cell cap-cell--wide">
+        <span class="cap-label">缺失能力</span>
+        <span v-if="cap.missingCapabilities.length" class="cap-chips">
+          <span v-for="c in cap.missingCapabilities" :key="c" class="cap-chip cap-chip--miss">{{ capabilityName(c) }} 未接入</span>
+        </span>
+        <span v-else class="cap-value tone--green">无（能力齐备）</span>
+      </div>
     </section>
 
     <!-- Three core cards -->
@@ -172,6 +211,21 @@ const guideSteps = [
 .meta-chip.mono { font-family: var(--font-mono); }
 .meta-chip.strong { background: var(--color-blue-subtle); color: var(--color-blue); font-weight: 500; }
 .hero-conclusion { margin-top: 16px; font-size: 15px; line-height: 1.6; color: var(--color-text-1); }
+
+/* Capability row */
+.cap-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.cap-cell { background: var(--color-surface-solid); border-radius: var(--radius-md); box-shadow: var(--shadow-card); padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+.cap-cell--wide { grid-column: span 4; }
+.cap-label { font-size: 11px; color: var(--color-text-3); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+.cap-value { font-size: 16px; font-weight: 600; color: var(--color-text-1); }
+.cap-sub { font-size: 12px; color: var(--color-text-3); }
+.tone--green { color: #166534; }
+.tone--orange { color: #92400e; }
+.tone--red { color: #991b1b; }
+.tone--gray { color: var(--color-text-2); }
+.cap-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.cap-chip { font-size: 12px; padding: 3px 10px; border-radius: 980px; }
+.cap-chip--miss { background: var(--color-orange-subtle); color: #92400e; }
 
 /* Cards */
 .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }

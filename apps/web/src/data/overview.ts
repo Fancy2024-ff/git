@@ -10,6 +10,8 @@ export interface OverviewInput {
   qa: any | null
   readiness: any | null
   pipelineReport: any | null
+  classification?: any | null
+  runtime?: any | null
 }
 
 export interface NextAction {
@@ -144,4 +146,32 @@ export function nextActions(input: OverviewInput): NextAction[] {
     out.push({ owner: 'agent', text: '重新运行 Pipeline 生成完整产物' })
   }
   return out
+}
+
+/** 能力工厂总览：app_type / 可行性 / 运行等级 / 缺失能力（卡片用）。 */
+export interface CapabilityOverview {
+  appType: string | null
+  feasibility: string | null
+  confidence: number | null
+  runnableLevel: string | null
+  runtimeReady: boolean
+  requiredCapabilities: string[]
+  configuredCapabilities: string[]
+  missingCapabilities: string[]
+}
+
+export function capabilityOverview(input: OverviewInput): CapabilityOverview | null {
+  const c = input.classification
+  const r = input.runtime
+  if (!c && !r) return null
+  return {
+    appType: c?.app_type ?? null,
+    feasibility: c?.miniapp_feasibility ?? null,
+    confidence: c?.app_type_confidence ?? null,
+    runnableLevel: r?.runnable_level ?? null,
+    runtimeReady: !!r?.runtime_ready,
+    requiredCapabilities: c?.required_capabilities ?? [],
+    configuredCapabilities: r?.configured_capabilities ?? [],
+    missingCapabilities: r?.missing_capabilities ?? [],
+  }
 }

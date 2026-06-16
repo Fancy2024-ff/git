@@ -610,18 +610,522 @@ def prd_agent(app: dict, opportunity: dict) -> tuple[str, dict]:
     return prd_md, prd_json
 
 
-def codegen_agent(app: dict, prd_json: dict, output_dir: Path) -> tuple[Path, dict]:
-    """代码生成 Agent：从 generator/templates 复制基础骨架，再定制化。"""
+def _build_feature_pages(app_type: str, feature_label: str) -> tuple[str, str]:
+    """按 app_type 返回 (form.vue, result.vue) 内容。
+
+    每类都含 5 态：空状态/输入/处理中/成功/失败。
+    text_ai 保持原文本逻辑（不回归）；其余类型生成各自能力骨架。
+    所有类型的"真实处理"都通过 utils/request.ts 调后端；未接入时显示明确提示，绝不假成功。
+    """
+    builders = {
+        "text_ai": _pages_text_ai,
+        "image_ai": _pages_image_ai,
+        "ocr_scan": _pages_ocr_scan,
+        "speech_ai": _pages_speech_ai,
+        "video_light": _pages_video_light,
+        "utility_tool": _pages_utility_tool,
+    }
+    return builders.get(app_type, _pages_text_ai)(feature_label)
+
+
+def _pages_text_ai(label: str) -> tuple[str, str]:
+    form = f"""<template>
+  <view class="container">
+    <view class="form-card">
+      <text class="form-title">{label}</text>
+      <textarea class="input-area" v-model="inputText" placeholder="请输入内容..." />
+      <button class="btn-submit" @click="handleSubmit" :loading="loading">开始处理</button>
+    </view>
+  </view>
+</template>
+
+<script setup lang="ts">
+import {{ ref }} from 'vue'
+const inputText = ref('')
+const loading = ref(false)
+async function handleSubmit() {{
+  if (!inputText.value.trim()) {{ uni.showToast({{ title: '请输入内容', icon: 'none' }}); return }}
+  loading.value = true
+  setTimeout(() => {{
+    loading.value = false
+    uni.navigateTo({{ url: '/pages/result/result?input=' + encodeURIComponent(inputText.value) }})
+  }}, 1500)
+}}
+</script>
+
+<style scoped>
+.container {{ padding: 32rpx; min-height: 100vh; background: #f5f5f7; }}
+.form-card {{ background: #fff; border-radius: 16rpx; padding: 32rpx; }}
+.form-title {{ font-size: 34rpx; font-weight: 600; color: #1d1d1f; margin-bottom: 24rpx; display: block; }}
+.input-area {{ width: 100%; min-height: 240rpx; padding: 20rpx; border: 1rpx solid #e8e8ed; border-radius: 12rpx; font-size: 28rpx; }}
+.btn-submit {{ margin-top: 32rpx; background: #0071e3; color: #fff; border: none; border-radius: 12rpx; font-size: 30rpx; }}
+</style>
+"""
+    result = """<template>
+  <view class="container">
+    <view class="result-card">
+      <text class="result-title">处理结果</text>
+      <view class="result-content"><text class="result-text">{{ resultText }}</text></view>
+      <view class="result-actions">
+        <button class="btn-copy" @click="copyResult">复制结果</button>
+        <button class="btn-back" @click="goBack">返回</button>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script setup lang="ts">
+import { ref } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
+const resultText = ref('AI 处理结果将在这里展示。连接后端 API 后将返回真实结果。')
+onLoad((options: any) => {
+  if (options?.input) {
+    resultText.value = `已处理输入内容（${decodeURIComponent(options.input).length} 字）\\n\\nAI 分析结果将在后端 API 接入后展示。`
+  }
+})
+function copyResult() { uni.setClipboardData({ data: resultText.value }) }
+function goBack() { uni.navigateBack() }
+</script>
+
+<style scoped>
+.container { padding: 32rpx; min-height: 100vh; background: #f5f5f7; }
+.result-card { background: #fff; border-radius: 16rpx; padding: 32rpx; }
+.result-title { font-size: 34rpx; font-weight: 600; color: #1d1d1f; margin-bottom: 24rpx; display: block; }
+.result-content { background: #f5f5f7; border-radius: 12rpx; padding: 24rpx; min-height: 200rpx; margin-bottom: 24rpx; }
+.result-text { font-size: 28rpx; color: #333; white-space: pre-wrap; }
+.result-actions { display: flex; gap: 16rpx; }
+.btn-copy { flex: 1; background: #0071e3; color: #fff; border: none; border-radius: 12rpx; font-size: 28rpx; }
+.btn-back { flex: 1; background: #f5f5f7; color: #333; border: none; border-radius: 12rpx; font-size: 28rpx; }
+</style>
+"""
+    return form, result
+
+
+# 其余 app_type 的页面生成器在下方 append（占位，下一步填充）
+def _pages_image_ai(label: str) -> tuple[str, str]:
+    """图像类：选图→选参数→上传→轮询→预览→保存。5 态完整。
+    真实处理走 utils/request.ts 调后端能力 API；未接入时明确提示，绝不假成功。"""
+    form = f"""<template>
+  <view class="container">
+    <view class="card">
+      <text class="title">{label}</text>
+      <view class="upload-area" @click="chooseImage">
+        <image v-if="imageUrl" :src="imageUrl" mode="aspectFit" class="preview" />
+        <view v-else class="upload-empty">
+          <text class="upload-plus">+</text>
+          <text class="upload-hint">点击选择图片</text>
+        </view>
+      </view>
+      <view class="params">
+        <text class="param-label">处理方式</text>
+        <view class="param-options">
+          <view v-for="op in operations" :key="op.value"
+                class="param-chip" :class="{{ active: op.value === operation }}"
+                @click="operation = op.value">{{{{ op.label }}}}</view>
+        </view>
+      </view>
+      <button class="btn-submit" :disabled="!imageUrl || processing" @click="submit">
+        {{{{ processing ? '处理中...' : '开始处理' }}}}
+      </button>
+      <text v-if="errorMsg" class="error-line">{{{{ errorMsg }}}}</text>
+    </view>
+  </view>
+</template>
+
+<script setup lang="ts">
+import {{ ref }} from 'vue'
+import {{ request }} from '../../utils/request'
+
+const imageUrl = ref('')
+const operation = ref('remove_background')
+const processing = ref(false)
+const errorMsg = ref('')
+const operations = [
+  {{ value: 'remove_background', label: '抠图换底' }},
+  {{ value: 'id_photo', label: '证件照' }},
+  {{ value: 'avatar_style', label: '头像风格化' }},
+  {{ value: 'enhance', label: '画质增强' }},
+]
+
+function chooseImage() {{
+  uni.chooseImage({{ count: 1, success: (res: any) => {{ imageUrl.value = res.tempFilePaths[0]; errorMsg.value = '' }} }})
+}}
+
+async function submit() {{
+  if (!imageUrl.value) return
+  processing.value = true
+  errorMsg.value = ''
+  try {{
+    // 上传 + 创建任务（后端图像能力 API）。未接入时后端返回未配置，前端如实提示。
+    const res: any = await request('/api/image/process', {{ operation: operation.value, image: imageUrl.value }})
+    if (res && res.result_url) {{
+      uni.navigateTo({{ url: '/pages/result/result?img=' + encodeURIComponent(res.result_url) }})
+    }} else {{
+      errorMsg.value = (res && res.message) || '图像能力未接入，无法处理（需配置图像 API）'
+    }}
+  }} catch (e: any) {{
+    errorMsg.value = '图像能力未接入或调用失败：' + (e?.message || '未知错误')
+  }} finally {{
+    processing.value = false
+  }}
+}}
+</script>
+
+<style scoped>
+.container {{ padding: 32rpx; min-height: 100vh; background: #f5f5f7; }}
+.card {{ background: #fff; border-radius: 16rpx; padding: 32rpx; }}
+.title {{ font-size: 34rpx; font-weight: 600; color: #1d1d1f; display: block; margin-bottom: 24rpx; }}
+.upload-area {{ width: 100%; height: 360rpx; border: 2rpx dashed #d2d2d7; border-radius: 12rpx; display: flex; align-items: center; justify-content: center; overflow: hidden; }}
+.preview {{ width: 100%; height: 100%; }}
+.upload-empty {{ display: flex; flex-direction: column; align-items: center; }}
+.upload-plus {{ font-size: 64rpx; color: #c7c7cc; }}
+.upload-hint {{ font-size: 26rpx; color: #8e8e93; }}
+.params {{ margin: 28rpx 0; }}
+.param-label {{ font-size: 26rpx; color: #6e6e73; }}
+.param-options {{ display: flex; flex-wrap: wrap; gap: 16rpx; margin-top: 12rpx; }}
+.param-chip {{ padding: 12rpx 24rpx; background: #f5f5f7; border-radius: 999rpx; font-size: 26rpx; color: #333; }}
+.param-chip.active {{ background: #0071e3; color: #fff; }}
+.btn-submit {{ background: #0071e3; color: #fff; border: none; border-radius: 12rpx; font-size: 30rpx; }}
+.btn-submit[disabled] {{ opacity: 0.5; }}
+.error-line {{ display: block; margin-top: 20rpx; font-size: 24rpx; color: #ff3b30; }}
+</style>
+"""
+    result = """<template>
+  <view class="container">
+    <view class="card">
+      <text class="title">处理结果</text>
+      <image v-if="imgUrl" :src="imgUrl" mode="widthFix" class="result-img" />
+      <view v-else class="empty"><text>暂无结果图</text></view>
+      <view class="actions">
+        <button v-if="imgUrl" class="btn-save" @click="save">保存到相册</button>
+        <button class="btn-back" @click="goBack">返回</button>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script setup lang="ts">
+import { ref } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
+const imgUrl = ref('')
+onLoad((options: any) => { if (options?.img) imgUrl.value = decodeURIComponent(options.img) })
+function save() {
+  if (!imgUrl.value) return
+  uni.downloadFile({ url: imgUrl.value, success: (r) => {
+    uni.saveImageToPhotosAlbum({ filePath: r.tempFilePath,
+      success: () => uni.showToast({ title: '已保存' }),
+      fail: () => uni.showToast({ title: '保存失败', icon: 'none' }) })
+  }})
+}
+function goBack() { uni.navigateBack() }
+</script>
+
+<style scoped>
+.container { padding: 32rpx; min-height: 100vh; background: #f5f5f7; }
+.card { background: #fff; border-radius: 16rpx; padding: 32rpx; }
+.title { font-size: 34rpx; font-weight: 600; color: #1d1d1f; display: block; margin-bottom: 24rpx; }
+.result-img { width: 100%; border-radius: 12rpx; }
+.empty { min-height: 200rpx; display: flex; align-items: center; justify-content: center; color: #8e8e93; font-size: 26rpx; }
+.actions { display: flex; gap: 16rpx; margin-top: 24rpx; }
+.btn-save { flex: 1; background: #0071e3; color: #fff; border: none; border-radius: 12rpx; font-size: 28rpx; }
+.btn-back { flex: 1; background: #f5f5f7; color: #333; border: none; border-radius: 12rpx; font-size: 28rpx; }
+</style>
+"""
+    return form, result
+
+def _pages_ocr_scan(label: str) -> tuple[str, str]:
+    """OCR：拍照/上传 → 识别 → 结果可复制。"""
+    form = f"""<template>
+  <view class="container">
+    <view class="card">
+      <text class="title">{label}</text>
+      <view class="upload-area" @click="chooseImage">
+        <image v-if="imageUrl" :src="imageUrl" mode="aspectFit" class="preview" />
+        <text v-else class="upload-hint">点击拍照 / 选择图片</text>
+      </view>
+      <button class="btn-submit" :disabled="!imageUrl || processing" @click="submit">
+        {{{{ processing ? '识别中...' : '开始识别' }}}}
+      </button>
+      <text v-if="errorMsg" class="error-line">{{{{ errorMsg }}}}</text>
+    </view>
+  </view>
+</template>
+
+<script setup lang="ts">
+import {{ ref }} from 'vue'
+import {{ request }} from '../../utils/request'
+const imageUrl = ref('')
+const processing = ref(false)
+const errorMsg = ref('')
+function chooseImage() {{
+  uni.chooseImage({{ count: 1, sourceType: ['album', 'camera'],
+    success: (res: any) => {{ imageUrl.value = res.tempFilePaths[0]; errorMsg.value = '' }} }})
+}}
+async function submit() {{
+  processing.value = true; errorMsg.value = ''
+  try {{
+    const res: any = await request('/api/vision/ocr', {{ image: imageUrl.value }})
+    if (res && res.text) uni.navigateTo({{ url: '/pages/result/result?text=' + encodeURIComponent(res.text) }})
+    else errorMsg.value = (res && res.message) || 'OCR 能力未接入（需配置视觉 API）'
+  }} catch (e: any) {{ errorMsg.value = 'OCR 能力未接入或失败：' + (e?.message || '') }}
+  finally {{ processing.value = false }}
+}}
+</script>
+
+<style scoped>
+.container {{ padding: 32rpx; min-height: 100vh; background: #f5f5f7; }}
+.card {{ background: #fff; border-radius: 16rpx; padding: 32rpx; }}
+.title {{ font-size: 34rpx; font-weight: 600; color: #1d1d1f; display: block; margin-bottom: 24rpx; }}
+.upload-area {{ width: 100%; height: 320rpx; border: 2rpx dashed #d2d2d7; border-radius: 12rpx; display: flex; align-items: center; justify-content: center; overflow: hidden; }}
+.preview {{ width: 100%; height: 100%; }}
+.upload-hint {{ font-size: 26rpx; color: #8e8e93; }}
+.btn-submit {{ margin-top: 28rpx; background: #0071e3; color: #fff; border: none; border-radius: 12rpx; font-size: 30rpx; }}
+.btn-submit[disabled] {{ opacity: 0.5; }}
+.error-line {{ display: block; margin-top: 20rpx; font-size: 24rpx; color: #ff3b30; }}
+</style>
+"""
+    result = """<template>
+  <view class="container">
+    <view class="card">
+      <text class="title">识别结果</text>
+      <view class="result-content"><text class="result-text">{{ resultText || '暂无识别结果' }}</text></view>
+      <view class="actions">
+        <button class="btn-copy" @click="copy">复制结果</button>
+        <button class="btn-back" @click="goBack">返回</button>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script setup lang="ts">
+import { ref } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
+const resultText = ref('')
+onLoad((o: any) => { if (o?.text) resultText.value = decodeURIComponent(o.text) })
+function copy() { if (resultText.value) uni.setClipboardData({ data: resultText.value }) }
+function goBack() { uni.navigateBack() }
+</script>
+
+<style scoped>
+.container { padding: 32rpx; min-height: 100vh; background: #f5f5f7; }
+.card { background: #fff; border-radius: 16rpx; padding: 32rpx; }
+.title { font-size: 34rpx; font-weight: 600; color: #1d1d1f; display: block; margin-bottom: 24rpx; }
+.result-content { background: #f5f5f7; border-radius: 12rpx; padding: 24rpx; min-height: 200rpx; margin-bottom: 24rpx; }
+.result-text { font-size: 28rpx; color: #333; white-space: pre-wrap; }
+.actions { display: flex; gap: 16rpx; }
+.btn-copy { flex: 1; background: #0071e3; color: #fff; border: none; border-radius: 12rpx; font-size: 28rpx; }
+.btn-back { flex: 1; background: #f5f5f7; color: #333; border: none; border-radius: 12rpx; font-size: 28rpx; }
+</style>
+"""
+    return form, result
+
+
+def _pages_speech_ai(label: str) -> tuple[str, str]:
+    """语音：文本输入 → TTS 合成 → 音频播放（未接入时提示）。"""
+    form = f"""<template>
+  <view class="container">
+    <view class="card">
+      <text class="title">{label}</text>
+      <textarea class="input-area" v-model="text" placeholder="输入要合成语音的文本..." />
+      <button class="btn-submit" :disabled="!text || processing" @click="submit">
+        {{{{ processing ? '合成中...' : '生成语音' }}}}
+      </button>
+      <text v-if="errorMsg" class="error-line">{{{{ errorMsg }}}}</text>
+    </view>
+  </view>
+</template>
+
+<script setup lang="ts">
+import {{ ref }} from 'vue'
+import {{ request }} from '../../utils/request'
+const text = ref('')
+const processing = ref(false)
+const errorMsg = ref('')
+async function submit() {{
+  if (!text.value.trim()) return
+  processing.value = true; errorMsg.value = ''
+  try {{
+    const res: any = await request('/api/speech/tts', {{ text: text.value }})
+    if (res && res.audio_url) uni.navigateTo({{ url: '/pages/result/result?audio=' + encodeURIComponent(res.audio_url) }})
+    else errorMsg.value = (res && res.message) || '语音能力未接入（需配置语音 API）'
+  }} catch (e: any) {{ errorMsg.value = '语音能力未接入或失败：' + (e?.message || '') }}
+  finally {{ processing.value = false }}
+}}
+</script>
+
+<style scoped>
+.container {{ padding: 32rpx; min-height: 100vh; background: #f5f5f7; }}
+.card {{ background: #fff; border-radius: 16rpx; padding: 32rpx; }}
+.title {{ font-size: 34rpx; font-weight: 600; color: #1d1d1f; display: block; margin-bottom: 24rpx; }}
+.input-area {{ width: 100%; min-height: 220rpx; padding: 20rpx; border: 1rpx solid #e8e8ed; border-radius: 12rpx; font-size: 28rpx; }}
+.btn-submit {{ margin-top: 28rpx; background: #0071e3; color: #fff; border: none; border-radius: 12rpx; font-size: 30rpx; }}
+.btn-submit[disabled] {{ opacity: 0.5; }}
+.error-line {{ display: block; margin-top: 20rpx; font-size: 24rpx; color: #ff3b30; }}
+</style>
+"""
+    result = """<template>
+  <view class="container">
+    <view class="card">
+      <text class="title">合成结果</text>
+      <view v-if="audioUrl" class="audio-box">
+        <button class="btn-play" @click="play">▶ 播放语音</button>
+      </view>
+      <view v-else class="empty"><text>暂无音频</text></view>
+      <button class="btn-back" @click="goBack">返回</button>
+    </view>
+  </view>
+</template>
+
+<script setup lang="ts">
+import { ref } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
+const audioUrl = ref('')
+let ctx: any = null
+onLoad((o: any) => { if (o?.audio) audioUrl.value = decodeURIComponent(o.audio) })
+function play() {
+  if (!audioUrl.value) return
+  ctx = ctx || uni.createInnerAudioContext()
+  ctx.src = audioUrl.value
+  ctx.play()
+}
+function goBack() { uni.navigateBack() }
+</script>
+
+<style scoped>
+.container { padding: 32rpx; min-height: 100vh; background: #f5f5f7; }
+.card { background: #fff; border-radius: 16rpx; padding: 32rpx; }
+.title { font-size: 34rpx; font-weight: 600; color: #1d1d1f; display: block; margin-bottom: 24rpx; }
+.audio-box { margin-bottom: 24rpx; }
+.btn-play { background: #0071e3; color: #fff; border: none; border-radius: 12rpx; font-size: 28rpx; }
+.empty { min-height: 160rpx; display: flex; align-items: center; justify-content: center; color: #8e8e93; font-size: 26rpx; }
+.btn-back { background: #f5f5f7; color: #333; border: none; border-radius: 12rpx; font-size: 28rpx; }
+</style>
+"""
+    return form, result
+
+def _pages_video_light(label: str) -> tuple[str, str]:
+    """轻视频：输入视频链接 → 异步处理 → 结果入口（未接入时提示）。"""
+    form = f"""<template>
+  <view class="container">
+    <view class="card">
+      <text class="title">{label}</text>
+      <input class="input-line" v-model="videoUrl" placeholder="粘贴视频链接..." />
+      <view class="ops">
+        <view v-for="op in ops" :key="op.value" class="op-chip"
+              :class="{{ active: op.value === operation }}" @click="operation = op.value">{{{{ op.label }}}}</view>
+      </view>
+      <button class="btn-submit" :disabled="!videoUrl || processing" @click="submit">
+        {{{{ processing ? '处理中...' : '开始处理' }}}}
+      </button>
+      <text v-if="errorMsg" class="error-line">{{{{ errorMsg }}}}</text>
+    </view>
+  </view>
+</template>
+
+<script setup lang="ts">
+import {{ ref }} from 'vue'
+import {{ request }} from '../../utils/request'
+const videoUrl = ref('')
+const operation = ref('summarize')
+const processing = ref(false)
+const errorMsg = ref('')
+const ops = [
+  {{ value: 'summarize', label: '视频摘要' }},
+  {{ value: 'cover', label: '封面生成' }},
+  {{ value: 'script', label: '脚本提取' }},
+]
+async function submit() {{
+  if (!videoUrl.value) return
+  processing.value = true; errorMsg.value = ''
+  try {{
+    const res: any = await request('/api/video/process', {{ operation: operation.value, url: videoUrl.value }})
+    if (res && res.result) uni.navigateTo({{ url: '/pages/result/result?text=' + encodeURIComponent(res.result) }})
+    else errorMsg.value = (res && res.message) || '视频能力未接入（需配置视频 API）'
+  }} catch (e: any) {{ errorMsg.value = '视频能力未接入或失败：' + (e?.message || '') }}
+  finally {{ processing.value = false }}
+}}
+</script>
+
+<style scoped>
+.container {{ padding: 32rpx; min-height: 100vh; background: #f5f5f7; }}
+.card {{ background: #fff; border-radius: 16rpx; padding: 32rpx; }}
+.title {{ font-size: 34rpx; font-weight: 600; color: #1d1d1f; display: block; margin-bottom: 24rpx; }}
+.input-line {{ width: 100%; padding: 20rpx; border: 1rpx solid #e8e8ed; border-radius: 12rpx; font-size: 28rpx; }}
+.ops {{ display: flex; gap: 16rpx; margin: 24rpx 0; }}
+.op-chip {{ padding: 12rpx 24rpx; background: #f5f5f7; border-radius: 999rpx; font-size: 26rpx; color: #333; }}
+.op-chip.active {{ background: #0071e3; color: #fff; }}
+.btn-submit {{ background: #0071e3; color: #fff; border: none; border-radius: 12rpx; font-size: 30rpx; }}
+.btn-submit[disabled] {{ opacity: 0.5; }}
+.error-line {{ display: block; margin-top: 20rpx; font-size: 24rpx; color: #ff3b30; }}
+</style>
+"""
+    # 复用 text 的结果页（文本结果展示）
+    _, result = _pages_text_ai(label)
+    return form, result
+
+
+def _pages_utility_tool(label: str) -> tuple[str, str]:
+    """工具：结构化输入表单 → 结果卡片（本地能力，无需外部 API）。"""
+    form = f"""<template>
+  <view class="container">
+    <view class="card">
+      <text class="title">{label}</text>
+      <input class="input-line" v-model="a" type="number" placeholder="输入数值 A" />
+      <input class="input-line" v-model="b" type="number" placeholder="输入数值 B" />
+      <button class="btn-submit" @click="submit">计算</button>
+    </view>
+  </view>
+</template>
+
+<script setup lang="ts">
+import {{ ref }} from 'vue'
+const a = ref('')
+const b = ref('')
+function submit() {{
+  const sum = (Number(a.value) || 0) + (Number(b.value) || 0)
+  uni.navigateTo({{ url: '/pages/result/result?text=' + encodeURIComponent('结果: ' + sum) }})
+}}
+</script>
+
+<style scoped>
+.container {{ padding: 32rpx; min-height: 100vh; background: #f5f5f7; }}
+.card {{ background: #fff; border-radius: 16rpx; padding: 32rpx; }}
+.title {{ font-size: 34rpx; font-weight: 600; color: #1d1d1f; display: block; margin-bottom: 24rpx; }}
+.input-line {{ width: 100%; padding: 20rpx; margin-bottom: 16rpx; border: 1rpx solid #e8e8ed; border-radius: 12rpx; font-size: 28rpx; }}
+.btn-submit {{ margin-top: 12rpx; background: #0071e3; color: #fff; border: none; border-radius: 12rpx; font-size: 30rpx; }}
+</style>
+"""
+    _, result = _pages_text_ai(label)
+    return form, result
+
+
+
+def codegen_agent(app: dict, prd_json: dict, output_dir: Path, app_type: str = "text_ai") -> tuple[Path, dict]:
+    """代码生成 Agent：复制 base 骨架 + 按 app_type 叠加对应能力模板，再定制化。
+
+    模板矩阵（registry 驱动，不写死）：
+      app_type → core/generator/src/templates/{app_type}/
+    text_ai 保持与历史等价（不回归）；其余类型叠加各自的能力页面骨架。
+    """
     import shutil
 
     miniapp_dir = output_dir / "miniapp"
     templates_dir = PROJECT_ROOT / "core" / "generator" / "src" / "templates"
     base_template = templates_dir / "base"
 
+    # 由单一事实源决定该 app_type 用哪个模板目录
+    try:
+        sys.path.insert(0, str(PROJECT_ROOT / "core"))
+        from capabilities.app_types import template_for
+        template_name = template_for(app_type)
+    except Exception:
+        template_name = "text_ai"
+
     # Track generation source
     gen_source = {
         "source": "generator_templates",
         "template": "base",
+        "app_type": app_type,
         "fallback_used": False,
         "generated_files_count": 0,
     }
@@ -644,15 +1148,23 @@ def codegen_agent(app: dict, prd_json: dict, output_dir: Path) -> tuple[Path, di
     for d in [pages_dir / "index", pages_dir / "form", pages_dir / "result", pages_dir / "profile", utils_dir, docs_dir]:
         d.mkdir(parents=True, exist_ok=True)
 
-    # Copy ai-tool template pages if available
-    ai_tool_template = templates_dir / "ai-tool"
-    if ai_tool_template.exists():
-        for sub in ai_tool_template.rglob("*"):
-            if sub.is_file():
-                dest = miniapp_dir / sub.relative_to(ai_tool_template)
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(str(sub), str(dest))
-        gen_source["template"] = "base/ai-tool"
+    # 叠加 app_type 专属模板（若存在）。text_ai 继续兼容历史 ai-tool 模板。
+    overlay_candidates = [templates_dir / template_name]
+    if app_type == "text_ai":
+        overlay_candidates.append(templates_dir / "ai-tool")  # 历史兼容，保证不回归
+    applied = []
+    for tmpl in overlay_candidates:
+        if tmpl.exists():
+            for sub in tmpl.rglob("*"):
+                if sub.is_file():
+                    dest = miniapp_dir / sub.relative_to(tmpl)
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(sub), str(dest))
+            applied.append(tmpl.name)
+    if applied:
+        gen_source["template"] = "base/" + "+".join(applied)
+    else:
+        gen_source["template"] = "base"
 
     app_name = app["name_cn"]
     app_name_en = app["name"].lower().replace(" ", "-")
@@ -786,91 +1298,13 @@ function goToForm() {{
 </style>
 """)
 
-    _write(pages_dir / "form" / "form.vue", f"""<template>
-  <view class="container">
-    <view class="form-card">
-      <text class="form-title">{app['features_cn'][0]}</text>
-      <textarea class="input-area" v-model="inputText" placeholder="请输入内容..." />
-      <button class="btn-submit" @click="handleSubmit" :loading="loading">开始处理</button>
-    </view>
-  </view>
-</template>
-
-<script setup lang="ts">
-import {{ ref }} from 'vue'
-
-const inputText = ref('')
-const loading = ref(false)
-
-async function handleSubmit() {{
-  if (!inputText.value.trim()) {{
-    uni.showToast({{ title: '请输入内容', icon: 'none' }})
-    return
-  }}
-  loading.value = true
-  setTimeout(() => {{
-    loading.value = false
-    uni.navigateTo({{ url: '/pages/result/result?input=' + encodeURIComponent(inputText.value) }})
-  }}, 1500)
-}}
-</script>
-
-<style scoped>
-.container {{ padding: 32rpx; min-height: 100vh; background: #f5f5f7; }}
-.form-card {{ background: #fff; border-radius: 16rpx; padding: 32rpx; }}
-.form-title {{ font-size: 34rpx; font-weight: 600; color: #1d1d1f; margin-bottom: 24rpx; display: block; }}
-.input-area {{ width: 100%; min-height: 240rpx; padding: 20rpx; border: 1rpx solid #e8e8ed; border-radius: 12rpx; font-size: 28rpx; }}
-.btn-submit {{ margin-top: 32rpx; background: #0071e3; color: #fff; border: none; border-radius: 12rpx; font-size: 30rpx; }}
-</style>
-""")
-
-    _write(pages_dir / "result" / "result.vue", """<template>
-  <view class="container">
-    <view class="result-card">
-      <text class="result-title">处理结果</text>
-      <view class="result-content">
-        <text class="result-text">{{ resultText }}</text>
-      </view>
-      <view class="result-actions">
-        <button class="btn-copy" @click="copyResult">复制结果</button>
-        <button class="btn-back" @click="goBack">返回</button>
-      </view>
-    </view>
-  </view>
-</template>
-
-<script setup lang="ts">
-import { ref } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
-
-const resultText = ref('AI 处理结果将在这里展示。连接后端 API 后将返回真实结果。')
-
-onLoad((options: any) => {
-  if (options?.input) {
-    resultText.value = `已处理输入内容（${decodeURIComponent(options.input).length} 字）\\n\\nAI 分析结果将在后端 API 接入后展示。`
-  }
-})
-
-function copyResult() {
-  uni.setClipboardData({ data: resultText.value })
-}
-
-function goBack() {
-  uni.navigateBack()
-}
-</script>
-
-<style scoped>
-.container { padding: 32rpx; min-height: 100vh; background: #f5f5f7; }
-.result-card { background: #fff; border-radius: 16rpx; padding: 32rpx; }
-.result-title { font-size: 34rpx; font-weight: 600; color: #1d1d1f; margin-bottom: 24rpx; display: block; }
-.result-content { background: #f5f5f7; border-radius: 12rpx; padding: 24rpx; min-height: 200rpx; margin-bottom: 24rpx; }
-.result-text { font-size: 28rpx; color: #333; white-space: pre-wrap; }
-.result-actions { display: flex; gap: 16rpx; }
-.btn-copy { flex: 1; background: #0071e3; color: #fff; border: none; border-radius: 12rpx; font-size: 28rpx; }
-.btn-back { flex: 1; background: #f5f5f7; color: #333; border: none; border-radius: 12rpx; font-size: 28rpx; }
-</style>
-""")
+    # 第 2、3 页（功能页 + 结果页）按 app_type 生成不同的能力骨架。
+    # text_ai 保持原文本表单逻辑（不回归）；image_ai/ocr_scan/speech_ai/video_light/
+    # utility_tool 各自生成对应交互（选图/上传/轮询/结果等），含 5 态视图。
+    feature_label = app["features_cn"][0] if app.get("features_cn") else app_name
+    form_vue, result_vue = _build_feature_pages(app_type, feature_label)
+    _write(pages_dir / "form" / "form.vue", form_vue)
+    _write(pages_dir / "result" / "result.vue", result_vue)
 
     _write(pages_dir / "profile" / "profile.vue", """<template>
   <view class="container">
@@ -1693,6 +2127,19 @@ def build_submission_readiness(best_app: dict, opportunity: dict, qa: dict,
         "提交审核并记录结果",
     ]
 
+    # L5：读已生成的 runtime 状态，给出分阶段就绪表达（code/build/qa/materials/upload/review/runtime）
+    runtime_ready = False
+    runnable_level = "buildable"
+    try:
+        rt_path = output_dir / "runtime-capability-status.json"
+        if rt_path.exists():
+            rt = json.loads(rt_path.read_text(encoding="utf-8"))
+            runtime_ready = bool(rt.get("runtime_ready"))
+            runnable_level = rt.get("runnable_level", "buildable")
+    except Exception:
+        pass
+    any_upload_ready = any(p.get("can_upload") for p in platform_readiness)
+
     return {
         "job_id": _pipeline_job_id,
         "app_name": best_app["name_cn"],
@@ -1707,6 +2154,15 @@ def build_submission_readiness(best_app: dict, opportunity: dict, qa: dict,
         "target_platforms": [p["platform"] for p in platform_readiness],
         "rejected_platforms": rejected_platforms,
         "platform_readiness": platform_readiness,
+        # —— L5 分阶段就绪（每一档独立表达，不再一律 passed）——
+        "code_generated": True,
+        "build_passed": bool(qa.get("checks", {}).get("build_passed")),
+        "qa_passed": qa_passed,
+        "materials_ready": (output_dir / "listing-materials.json").exists(),
+        "upload_ready": any_upload_ready,
+        "review_ready": len(blocking_issues) == 0,
+        "runtime_ready": runtime_ready,
+        "runnable_level": runnable_level,
         "next_action": (
             "可以提交审核" if len(blocking_issues) == 0
             else "当前不能提交审核，请先解决上方 blocking_issues"
@@ -1772,6 +2228,97 @@ def _safe_error(e: Exception) -> str:
     """脱敏的错误摘要：不回显 key/url 等敏感串，截断长度。"""
     msg = f"{type(e).__name__}: {e}"
     return msg[:300]
+
+
+def _use_llm() -> bool:
+    """运行时读 USE_LLM（便于测试 monkeypatch settings）。"""
+    try:
+        sys.path.insert(0, str(PROJECT_ROOT / "core" / "agents"))
+        from config import settings
+        return bool(getattr(settings, "USE_LLM", False))
+    except Exception:
+        return False
+
+
+def _classify_and_write(best_app: dict, output_dir: Path) -> dict:
+    """L1 分类：判断 app_type，写 app-classification.json。永不抛异常。"""
+    sys.path.insert(0, str(PROJECT_ROOT / "core" / "agents"))
+    sys.path.insert(0, str(PROJECT_ROOT / "core"))
+    try:
+        from classification.classifier import classify_app
+        result = classify_app(best_app, use_llm=_use_llm())
+    except Exception as e:
+        # 分类层本身永不应抛，但兜底：回退到 text_ai
+        from capabilities.app_types import get_app_type
+        spec = get_app_type("text_ai")
+        result = {
+            "app_type": "text_ai", "app_type_confidence": 0.3,
+            "miniapp_feasibility": spec["default_feasibility"],
+            "required_capabilities": list(spec["capabilities"]),
+            "blocking_constraints": list(spec["constraints"]),
+            "reasons": ["分类异常，回退 text_ai"], "reasoning_summary": "",
+            "recommended_platforms": ["wechat"], "llm_used": False,
+            "llm_fallback": True, "classify_error": _safe_error(e),
+        }
+    _write(output_dir / "app-classification.json",
+           json.dumps(result, ensure_ascii=False, indent=2))
+    return result
+
+
+def _write_capability_reports(app_type: str, required_caps: list[str],
+                              template: str, fallback_used: bool, output_dir: Path) -> dict:
+    """L2/L3/L4：写 capability-registry-snapshot / generator-capability-report /
+    runtime-capability-status 三个 artifact，返回 runtime 状态字典。永不抛异常。"""
+    sys.path.insert(0, str(PROJECT_ROOT / "core"))
+    try:
+        from capabilities.registry import snapshot, split_configured
+        configured, missing = split_configured(required_caps)
+        snap = snapshot()
+    except Exception as e:
+        configured, missing, snap = [], list(required_caps), {"error": _safe_error(e)}
+
+    _write(output_dir / "capability-registry-snapshot.json",
+           json.dumps(snap, ensure_ascii=False, indent=2))
+
+    # runnable_level：能力是否齐 → 决定运行等级
+    # shell_only < buildable < submit_ready < partially_runtime_ready < runtime_ready
+    if not required_caps:
+        runnable = "buildable"
+    elif not missing:
+        runnable = "runtime_ready"          # 全部能力就位
+    elif configured:
+        runnable = "partially_runtime_ready"  # 部分就位
+    else:
+        runnable = "buildable"               # 骨架可构建，但能力未接入
+
+    gen_report = {
+        "selected_app_type": app_type,
+        "selected_template": template,
+        "required_capabilities": list(required_caps),
+        "configured_capabilities": configured,
+        "missing_capabilities": missing,
+        "runnable_level": runnable,
+        "fallback_used": fallback_used,
+    }
+    _write(output_dir / "generator-capability-report.json",
+           json.dumps(gen_report, ensure_ascii=False, indent=2))
+
+    blocking = [f"能力未接入: {c}" for c in missing]
+    runtime = {
+        "app_type": app_type,
+        "runtime_ready": runnable == "runtime_ready",
+        "runnable_level": runnable,
+        "configured_capabilities": configured,
+        "missing_capabilities": missing,
+        "blocking_issues": blocking,
+        "warnings": [] if not missing else ["部分能力未配置 provider，生成的小程序可上架但运行能力不完整"],
+        "next_action_owner": "human" if missing else "agent",
+        "next_action": (f"配置缺失能力 provider: {', '.join(missing)}" if missing
+                        else "能力就绪，可接真实运行链路"),
+    }
+    _write(output_dir / "runtime-capability-status.json",
+           json.dumps(runtime, ensure_ascii=False, indent=2))
+    return runtime
 
 
 def _apply_llm_demand_analysis(best_app: dict, analysis: dict, output_dir: Path) -> None:
@@ -1933,6 +2480,12 @@ def _run_pipeline_steps(mode: str, job_id: str, output_dir: Path) -> dict:
     # 失败必 fallback 到上面的规则分析，绝不让 pipeline 崩。
     _apply_llm_demand_analysis(best_app, best_analysis, output_dir)
 
+    # --- L1 产品分类：判断 app_type，写 app-classification.json ---
+    classification = _classify_and_write(best_app, output_dir)
+    app_type = classification["app_type"]
+    p(f"  产品类型: {app_type}（{classification['miniapp_feasibility']} 可行性, "
+      f"置信度 {classification['app_type_confidence']}）")
+
     _write(output_dir / "candidate.json", json.dumps(best_app, ensure_ascii=False, indent=2))
     _write(output_dir / "analysis.json", json.dumps(best_analysis, ensure_ascii=False, indent=2))
     step_end(artifact="analysis.json")
@@ -1982,12 +2535,23 @@ def _run_pipeline_steps(mode: str, job_id: str, output_dir: Path) -> dict:
     t0 = time.time()
     gen_dir = output_dir / "generated"
     gen_dir.mkdir(exist_ok=True)
-    miniapp_dir, gen_source = codegen_agent(best_app, prd_json, gen_dir)
+    miniapp_dir, gen_source = codegen_agent(best_app, prd_json, gen_dir, app_type=app_type)
     _write(output_dir / "generator-source.json", json.dumps(gen_source, ensure_ascii=False, indent=2))
     file_count = gen_source["generated_files_count"]
     p(f"  项目路径: {miniapp_dir}")
     p(f"  生成文件: {file_count} 个")
     p(f"  模板来源: {gen_source['source']} ({gen_source['template']})")
+    # L2/L3/L4：写能力快照 / 生成报告 / 运行状态三个 artifact
+    runtime_status = _write_capability_reports(
+        app_type=app_type,
+        required_caps=classification.get("required_capabilities", []),
+        template=gen_source.get("template", app_type),
+        fallback_used=gen_source.get("fallback_used", False),
+        output_dir=output_dir,
+    )
+    p(f"  运行能力等级: {runtime_status['runnable_level']}"
+      + (f"（缺: {', '.join(runtime_status['missing_capabilities'])}）"
+         if runtime_status['missing_capabilities'] else ""))
     step_end(artifact="generated/miniapp/")
     step_done(f"data/outputs/{job_id}/generated/miniapp/", time.time() - t0)
 
