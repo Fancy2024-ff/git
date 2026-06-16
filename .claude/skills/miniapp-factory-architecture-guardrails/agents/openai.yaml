@@ -1,0 +1,7 @@
+interface:
+  display_name: "Mini App Factory 架构守门"
+  short_description: "用于 Mini App Factory 最终版目标架构 v1.0 的约束：新增功能/重构/平台接入/能力接入前，先判层落位，防止结构债。"
+  default_prompt: "请使用 $miniapp-factory-architecture-guardrails 判断本次改动属于哪一层、应放在哪个目录、是否破坏架构边界，并按 references 中的落位规则与交付清单执行。"
+
+policy:
+  allow_implicit_invocation: true

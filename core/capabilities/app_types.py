@@ -28,6 +28,7 @@ APP_TYPES: dict[str, dict] = {
             "assistant", "文案", "copywrit", "essay", "grammar", "语法", "问答", "qa",
             "paraphrase", "改写", "润色", "prompt", "gpt", "语言",
         ],
+        "typical_operations": ['generate', 'chat'],
         "default_feasibility": "high",
         "constraints": [],
     },
@@ -41,6 +42,7 @@ APP_TYPES: dict[str, dict] = {
             "restore", "老照片", "filter", "滤镜", "ai art", "绘画", "draw", "generate image",
             "图生图", "美化", "p图",
         ],
+        "typical_operations": ['remove_background', 'id_photo', 'avatar_style', 'enhance'],
         "default_feasibility": "medium",
         "constraints": ["图像处理依赖云端图像 API，包体积与本地算力不支持离线模型"],
     },
@@ -53,6 +55,7 @@ APP_TYPES: dict[str, dict] = {
             "receipt", "invoice", "发票", "card", "卡证", "表格", "table", "text extract",
             "提取", "拍照识别",
         ],
+        "typical_operations": ['ocr', 'document_extract', 'table_extract'],
         "default_feasibility": "medium",
         "constraints": ["识别依赖云端视觉 API"],
     },
@@ -64,6 +67,7 @@ APP_TYPES: dict[str, dict] = {
             "speech", "voice", "语音", "配音", "tts", "text to speech", "朗读", "read aloud",
             "字幕", "subtitle", "asr", "语音转文字", "transcri", "听写", "dubbing", "audio",
         ],
+        "typical_operations": ['tts', 'asr'],
         "default_feasibility": "medium",
         "constraints": ["语音合成/识别依赖云端语音 API；部分平台录音权限受限"],
     },
@@ -75,6 +79,7 @@ APP_TYPES: dict[str, dict] = {
             "video", "视频", "封面", "cover", "脚本", "script", "剪辑入口", "字幕",
             "摘要", "transcode", "转码", "素材", "短视频", "clip",
         ],
+        "typical_operations": ['summarize', 'cover_generate', 'metadata_extract'],
         "default_feasibility": "low",
         "constraints": ["仅提供轻量视频能力入口；重型本地剪辑小程序不支持", "视频处理依赖云端 API"],
     },
@@ -86,6 +91,7 @@ APP_TYPES: dict[str, dict] = {
             "calculat", "计算", "convert", "转换", "查询", "query", "tool", "工具",
             "效率", "表单", "form", "汇率", "单位", "倒计时", "记账", "checklist", "清单",
         ],
+        "typical_operations": ['calculate', 'convert', 'query'],
         "default_feasibility": "high",
         "constraints": [],
     },
@@ -108,6 +114,23 @@ def template_for(app_type: str) -> str:
 
 def capabilities_for(app_type: str) -> list[str]:
     return list(get_app_type(app_type)["capabilities"])
+
+
+def display_name_for(app_type: str) -> str:
+    return get_app_type(app_type)["name_cn"]
+
+
+def default_template_for(app_type: str) -> str:
+    """default_template 与 template 同义（保留语义化别名供 registry/文档使用）。"""
+    return get_app_type(app_type)["template"]
+
+
+def typical_operations_for(app_type: str) -> list[str]:
+    return list(get_app_type(app_type).get("typical_operations", []))
+
+
+def feasibility_for(app_type: str) -> str:
+    return get_app_type(app_type)["default_feasibility"]
 
 
 def classify_by_rules(app: dict) -> dict:

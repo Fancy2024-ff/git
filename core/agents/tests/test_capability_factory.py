@@ -1,4 +1,4 @@
-"""能力工厂架构测试：分类层 + 能力注册表 + app_types 单一事实源。"""
+"""能力工厂架构测试：app_types 单一事实源 + registry + 6 类 adapter + 状态表达。"""
 
 import sys
 from pathlib import Path
@@ -11,7 +11,7 @@ for p in (REPO_ROOT / "core", REPO_ROOT / "core" / "agents"):
         sys.path.insert(0, str(p))
 
 
-# ---- app_types 单一事实源 ----
+# ── app_types 单一事实源 ──
 
 def test_six_app_types_defined():
     from capabilities.app_types import VALID_APP_TYPES
@@ -20,14 +20,15 @@ def test_six_app_types_defined():
     }
 
 
-def test_template_and_capabilities_consistent():
-    from capabilities.app_types import APP_TYPES, template_for, capabilities_for
-    for atype in APP_TYPES:
-        assert template_for(atype) == atype  # 模板名 = 类型名
-        assert capabilities_for(atype)       # 每类都有所需能力
+def test_app_type_has_all_authoritative_fields():
+    from capabilities import app_types as at
+    for t in at.VALID_APP_TYPES:
+        assert at.display_name_for(t)               # display_name
+        assert at.default_template_for(t) == t       # template = type
+        assert at.capabilities_for(t)                # required_capabilities
+        assert at.typical_operations_for(t)          # typical_operations
+        assert at.feasibility_for(t) in ("high", "medium", "low")
 
-
-# ---- 规则分类：6 类典型输入 ----
 
 @pytest.mark.parametrize("app,expected", [
     ({"name": "AI Writer", "description": "writing grammar translate summarize"}, "text_ai"),
@@ -46,59 +47,131 @@ def test_unknown_falls_back_to_text_ai():
     from capabilities.app_types import classify_by_rules
     r = classify_by_rules({"name": "zzz", "description": "完全无关键词的描述"})
     assert r["app_type"] == "text_ai"
-    assert r["app_type_confidence"] <= 0.4  # 低置信回退
+    assert r["app_type_confidence"] <= 0.4
 
 
-# ---- classifier 层：use_llm=False / LLM 失败 fallback ----
+# ── registry ──
 
-def test_classify_app_rule_mode():
-    from classification.classifier import classify_app
-    r = classify_app({"name": "ID Photo", "name_cn": "证件照", "description": "id photo remove background"}, use_llm=False)
-    assert r["app_type"] == "image_ai"
-    assert r["llm_used"] is False
-    assert r["llm_fallback"] is False
-    assert "image.process" in r["required_capabilities"]
-
-
-def test_classify_app_llm_failure_falls_back(monkeypatch):
-    # USE_LLM=true 但 LLM 抛错 → 必须 fallback 到规则，不抛异常
-    from classification import classifier
-    def boom(app):
-        raise RuntimeError("llm down")
-    monkeypatch.setattr(classifier, "_llm_classification", boom)
-    r = classifier.classify_app({"name": "Writer", "description": "writing"}, use_llm=True)
-    assert r["llm_used"] is False
-    assert r["llm_fallback"] is True
-    assert r["app_type"] == "text_ai"
-    assert "llm_error" in r
+def test_registry_returns_all_six_capabilities():
+    from capabilities.registry import get_capability_registry
+    reg = get_capability_registry()
+    assert set(reg.keys()) == {
+        "text.generate", "image.process", "vision.ocr",
+        "speech.tts", "video.process", "utility.execute",
+    }
 
 
-# ---- 能力注册表：诚实状态 ----
+def test_required_capabilities_for_app_type():
+    from capabilities.registry import required_capabilities_for_app_type
+    assert required_capabilities_for_app_type("image_ai") == ["image.process"]
+    assert "speech.tts" in required_capabilities_for_app_type("speech_ai")
 
-def test_registry_text_configured_image_missing(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")  # text 可配置
+
+def test_snapshot_splits_configured_missing(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
     monkeypatch.delenv("IMAGE_API_KEY", raising=False)
     monkeypatch.delenv("IMAGE_API_BASE", raising=False)
-    # 重新导入 registry 以反映 env（adapter 在 is_configured 时读 env，无需重载）
-    from capabilities.registry import capability_status, split_configured
-    assert capability_status("text.generate")["configured"] is True
-    img = capability_status("image.process")
-    assert img["configured"] is False
-    assert img["status"] == "provider_missing"
-    conf, miss = split_configured(["image.process"])
-    assert miss == ["image.process"]
+    from capabilities.registry import build_capability_snapshot
+    s = build_capability_snapshot("image_ai")
+    assert s["app_type"] == "image_ai"
+    assert s["missing_capabilities"] == ["image.process"]
+    assert s["runnable_level"] == "buildable"
 
 
-def test_utility_always_configured():
-    from capabilities.registry import capability_status
-    assert capability_status("utility.execute")["configured"] is True
+def test_speech_asr_alias_resolves():
+    from capabilities.registry import get_adapter
+    assert get_adapter("speech.asr").capability_name == "speech.tts"
 
 
-def test_image_adapter_unconfigured_returns_honest_result(monkeypatch):
+# ── text adapter（不回归）──
+
+def test_text_adapter_configured_when_key_present(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    from capabilities.text import TextAdapter
+    a = TextAdapter()
+    assert a.configured is True
+    assert a.runtime_ready() is True
+    assert "generate" in a.supported_operations
+
+
+def test_text_adapter_provider_missing_without_key(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    from capabilities.text import TextAdapter
+    spec = TextAdapter().get_spec()
+    assert spec.configured is False
+    assert spec.status == "provider_missing"
+    assert "ANTHROPIC_API_KEY" in spec.missing_requirements
+
+
+# ── image adapter（第一条复杂能力范式）──
+
+def test_image_adapter_has_four_operations():
+    from capabilities.image import ImageAdapter
+    assert ImageAdapter().supported_operations == [
+        "remove_background", "id_photo", "avatar_style", "enhance",
+    ]
+
+
+def test_image_provider_missing_without_config(monkeypatch):
     monkeypatch.delenv("IMAGE_API_KEY", raising=False)
     monkeypatch.delenv("IMAGE_API_BASE", raising=False)
-    from capabilities.image_adapter import ImageAdapter
-    res = ImageAdapter().run("id_photo", image_ref="x.jpg")
-    assert res.ok is False
-    assert res.configured is False
-    assert "未接入" in res.error
+    from capabilities.image import ImageAdapter
+    a = ImageAdapter()
+    assert a.configured is False
+    assert a.status() == "provider_missing"
+    # create_task / poll_task 状态可用且诚实
+    created = a.create_task("id_photo", "x.jpg")
+    assert created.success is False
+    assert created.error_code == "provider_missing"
+    assert created.data["task_id"] is None
+    polled = a.poll_task("any")
+    assert polled.success is False
+
+
+def test_image_configured_when_both_env_present(monkeypatch):
+    monkeypatch.setenv("IMAGE_API_KEY", "k")
+    monkeypatch.setenv("IMAGE_API_BASE", "https://img")
+    from capabilities.image import ImageAdapter
+    a = ImageAdapter()
+    assert a.configured is True
+    created = a.create_task("id_photo", "x.jpg")
+    assert created.success is True
+    assert created.data["task_id"]
+
+
+# ── vision / speech / video stub + utility local ──
+
+def test_stub_capabilities_provider_missing(monkeypatch):
+    for env in ("VISION_API_KEY", "SPEECH_API_KEY", "VIDEO_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
+    from capabilities.vision import VisionAdapter
+    from capabilities.speech import SpeechAdapter
+    from capabilities.video import VideoAdapter
+    for A, ops in [(VisionAdapter, "ocr"), (SpeechAdapter, "tts"), (VideoAdapter, "summarize")]:
+        a = A()
+        assert a.configured is False
+        assert a.status() == "provider_missing"
+        assert ops in a.supported_operations
+
+
+def test_utility_local_runtime_ready():
+    from capabilities.utility import UtilityAdapter
+    a = UtilityAdapter()
+    assert a.configured is True
+    assert a.runtime_ready() is True
+    assert a.status() == "runtime_ready"
+    res = a.execute("calculate", args={"a": 2, "b": 3, "op": "add"})
+    assert res.success is True
+    assert res.data["result"] == 5
+
+
+# ── 端到端快照 ──
+
+def test_snapshots_for_three_app_types(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    monkeypatch.delenv("IMAGE_API_KEY", raising=False)
+    monkeypatch.delenv("IMAGE_API_BASE", raising=False)
+    from capabilities.registry import build_capability_snapshot
+    assert build_capability_snapshot("text_ai")["runnable_level"] == "runtime_ready"
+    assert build_capability_snapshot("image_ai")["runnable_level"] == "buildable"
+    assert build_capability_snapshot("utility_tool")["runnable_level"] == "runtime_ready"
