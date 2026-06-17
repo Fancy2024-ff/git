@@ -603,10 +603,11 @@ def wechat_upload(req: WechatUploadRequest = WechatUploadRequest()):
     if not job_dir.exists():
         raise HTTPException(404, "Job not found")
 
-    from platforms.wechat.upload import upload_dev_version, update_submit_status
+    from platforms.wechat.upload import upload_dev_version, update_submit_status, update_submission_readiness
     result = upload_dev_version(job_dir=job_dir, platform_auth_dir=PLATFORM_AUTH_DIR)
-    # 上传结果写回 submit-status.json（artifact 联动）
+    # 上传结果联动写回两个 artifact，保持状态一致
     update_submit_status(job_dir, result)
+    update_submission_readiness(job_dir, result)
     return result
 
 

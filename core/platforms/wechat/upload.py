@@ -17,34 +17,26 @@ if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
 from platforms.wechat.auth import load_auth, validate_auth
-
-
-class UploadErrorCode:
-    CONFIG_MISSING = "config_missing"
-    DIST_MISSING = "dist_missing"
-    CLI_MISSING = "cli_missing"
-    UPLOAD_DISABLED = "upload_disabled"
-    AUTH_FAILED = "auth_failed"
-    UPSTREAM_FAILED = "upstream_failed"
-    TIMEOUT = "timeout"
+from platforms.common.status import UploadStatus, UploadErrorCode
+from platforms.common.models import PlatformUploadResult, PlatformNextAction
 
 
 def _result(upload_passed, status, *, message="", error_code="", dist_path="",
-            appid="", version="", next_action="", raw_output="") -> dict:
-    """统一上传返回结构。"""
-    return {
-        "upload_passed": upload_passed,
-        "status": status,                      # uploaded / failed / not_started
-        "provider": "miniprogram-ci",
-        "tool": "miniprogram-ci",
-        "dist_path": dist_path,
-        "appid": appid,
-        "version": version,
-        "message": message,
-        "error_code": error_code,
-        "raw_output": (raw_output or "")[-1500:],
-        "next_action": next_action,
-    }
+            appid="", version="", next_action="", next_owner="human", raw_output="") -> dict:
+    """统一上传返回结构（基于公共 PlatformUploadResult）。"""
+    return PlatformUploadResult(
+        platform_id="wechat",
+        upload_passed=upload_passed,
+        upload_status=status,                # UploadStatus.*
+        provider="miniprogram-ci",
+        dist_path=dist_path,
+        appid=appid,
+        version=version,
+        message=message,
+        error_code=error_code,
+        raw_output=raw_output,
+        next_action=PlatformNextAction(owner=next_owner, text=next_action) if next_action else None,
+    ).to_dict()
 
 
 def resolve_project_path(job_dir: Path) -> str:
@@ -80,11 +72,11 @@ def upload_dev_version(
     config = load_auth(platform_auth_dir)
     configured, missing = validate_auth(config)
     if not configured:
-        return _result(False, "not_started", error_code=UploadErrorCode.CONFIG_MISSING,
+        return _result(False, UploadStatus.NOT_UPLOADED, error_code=UploadErrorCode.CONFIG_MISSING,
                        message=f"微信授权未配置（缺: {', '.join(missing)}）",
                        next_action="在 data/platform-auth/wechat.json 配置 appid 与 private_key_path")
     if not config.get("upload_enabled"):
-        return _result(False, "not_started", error_code=UploadErrorCode.UPLOAD_DISABLED,
+        return _result(False, UploadStatus.NOT_UPLOADED, error_code=UploadErrorCode.UPLOAD_DISABLED,
                        appid=config.get("appid", ""),
                        message="upload_enabled 为 false，未开启自动上传",
                        next_action="将 wechat.json 的 upload_enabled 置为 true")
@@ -92,7 +84,7 @@ def upload_dev_version(
     # 2) dist/project
     project_path = resolve_project_path(job_dir)
     if not project_path:
-        return _result(False, "failed", error_code=UploadErrorCode.DIST_MISSING,
+        return _result(False, UploadStatus.UPLOAD_FAILED, error_code=UploadErrorCode.DIST_MISSING,
                        appid=config.get("appid", ""),
                        message="构建产物 dist/build/mp-weixin 不存在，请先构建",
                        next_action="先跑通 build/QA 生成 dist 产物")
@@ -103,7 +95,7 @@ def upload_dev_version(
         kwargs["which"] = which
     ok, miss = miniprogram_ci.validate_env_or_binary(**({"which": which} if which else {}))
     if not ok:
-        return _result(False, "failed", error_code=UploadErrorCode.CLI_MISSING,
+        return _result(False, UploadStatus.UPLOAD_FAILED, error_code=UploadErrorCode.CLI_MISSING,
                        appid=config.get("appid", ""), dist_path=project_path,
                        message=f"{miss} 不可用，无法调用 miniprogram-ci",
                        next_action="安装 Node.js + npx 后重试")
@@ -125,7 +117,7 @@ def upload_dev_version(
     ci = miniprogram_ci.upload_project(**run_kwargs)
 
     if ci.success:
-        return _result(True, "uploaded", appid=config["appid"], dist_path=project_path,
+        return _result(True, UploadStatus.UPLOADED, appid=config["appid"], dist_path=project_path,
                        version=ci.version or version, message="开发版已上传到微信后台",
                        raw_output=ci.raw_output,
                        next_action="去 mp.weixin.qq.com 后台提交审核")
@@ -136,7 +128,7 @@ def upload_dev_version(
         "timeout": UploadErrorCode.TIMEOUT,
         "dist_missing": UploadErrorCode.DIST_MISSING,
     }
-    return _result(False, "failed", appid=config["appid"], dist_path=project_path,
+    return _result(False, UploadStatus.UPLOAD_FAILED, appid=config["appid"], dist_path=project_path,
                    error_code=code_map.get(ci.error_code, UploadErrorCode.UPSTREAM_FAILED),
                    message=ci.message or "上传失败", raw_output=ci.raw_output,
                    next_action="检查私钥/appid/网络后重试")
@@ -164,6 +156,62 @@ def update_submit_status(job_dir: Path, upload_result: dict) -> None:
                     plat["review_status"] = plat.get("review_status", "not_submitted")
                 else:
                     plat["next_action"] = upload_result.get("next_action", "")
+        f.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def update_submission_readiness(job_dir: Path, upload_result: dict) -> None:
+    """把上传结果真联动到 submission-readiness-report.json。永不抛异常。
+
+    核心原则（与 submit-status 不矛盾）：
+    - 上传成功 → wechat 项 can_upload=true、upload_status=uploaded、next_action=去后台提审；
+      新增 upload_ready=true；但 review_ready 绝不因上传成功置 true（仍需人工提审 + 截图/真机）。
+    - 上传失败 → wechat 项体现失败原因，加入 blocking_issues（去重），upload_ready=false。
+    - 顶层 ready_to_submit/is_ready_to_submit 维持原业务判定（不因上传而置 true）。
+    """
+    f = Path(job_dir) / "submission-readiness-report.json"
+    if not f.exists():
+        return
+    passed = bool(upload_result.get("upload_passed"))
+    msg = upload_result.get("message", "")
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+
+        # 1) platform_readiness 中 wechat 项联动
+        for plat in data.get("platform_readiness", []):
+            if plat.get("platform") == "wechat":
+                if passed:
+                    plat["uploaded"] = True
+                    plat["upload_status"] = "uploaded"
+                    plat["next_action"] = "开发版已上传，去 mp.weixin.qq.com 后台提交审核"
+                else:
+                    plat["uploaded"] = False
+                    plat["upload_status"] = "upload_failed"
+                    plat["next_action"] = upload_result.get("next_action", msg)
+
+        # 2) upload_ready：是否有平台已成功上传开发版
+        any_uploaded = any(p.get("uploaded") for p in data.get("platform_readiness", []))
+        data["upload_ready"] = any_uploaded
+
+        # 3) blocking / warning 联动
+        blocking = data.get("blocking_issues", [])
+        fail_note = f"微信上传失败：{msg}"
+        if not passed:
+            if fail_note not in blocking:
+                blocking.append(fail_note)
+        else:
+            # 成功则清掉历史的微信上传失败阻塞项
+            blocking = [b for b in blocking if not b.startswith("微信上传失败")]
+        data["blocking_issues"] = blocking
+
+        # 4) review_ready：绝不因上传成功置 true（仍需人工提审）
+        data.setdefault("review_ready", False)
+
+        # 5) 顶层 next_action：上传成功后提示提审，但不改 ready_to_submit
+        if passed:
+            data["next_action"] = "微信开发版已上传，下一步人工去微信后台提交审核"
+
         f.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:
         pass
