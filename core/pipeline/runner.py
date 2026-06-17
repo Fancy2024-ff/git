@@ -2085,56 +2085,35 @@ def build_submission_readiness(best_app: dict, opportunity: dict, qa: dict,
     qa_passed = bool(qa.get("passed"))
     dist_exists = bool(qa.get("checks", {}).get("dist_exists"))
 
-    registry_file = DATA_DIR / "platforms" / "platform-registry.json"
-    registry = {}
-    if registry_file.exists():
-        try:
-            registry = {p["id"]: p for p in json.loads(registry_file.read_text(encoding="utf-8-sig"))}
-        except Exception:
-            registry = {}
+    # 平台元数据唯一来源：core/platforms/registry.py（其内部以 data 文件为 legacy backing）
+    sys.path.insert(0, str(PROJECT_ROOT / "core"))
+    from platforms import registry as plat_registry
+    from platforms.common import readiness as plat_readiness
 
     platform_readiness = []
     rejected_platforms = []
     any_configured = False
 
     for plat in opportunity["target_platforms"]:
-        reg = registry.get(plat, {})
-        status = reg.get("status", "unknown")
+        status = plat_registry.get_status(plat)
         if status in ("not_supported", "research_needed"):
             rejected_platforms.append({
                 "platform": plat,
-                "reason": reg.get("notes", "平台不支持") if status == "not_supported" else "待调研，暂不可提交",
+                "reason": (plat_registry.get_platform(plat).get("notes", "平台不支持")
+                           if status == "not_supported" else "待调研，暂不可提交"),
             })
             continue
 
         configured, missing_fields = _platform_auth_status(plat)
-        can_upload = configured and reg.get("automation_level", "manual") != "manual"
         any_configured = any_configured or configured
+        upload_path = str(output_dir / "generated" / "miniapp" / plat_registry.get_upload_target(plat))
 
-        plat_blocking = []
-        if not configured:
-            plat_blocking.append(f"未配置 {plat} 平台授权（缺: {', '.join(missing_fields) or 'AppID'}）")
-        if not qa_passed:
-            plat_blocking.append("QA/构建未通过")
-        if not dist_exists:
-            plat_blocking.append("构建产物缺失")
-
-        platform_readiness.append({
-            "platform": plat,
-            "name_cn": reg.get("name_cn", plat),
-            "name_en": reg.get("name_en", plat),
-            "ready": status == "active" and configured and qa_passed and dist_exists,
-            "configured": configured,
-            "can_upload": can_upload,
-            "missing_fields": missing_fields,
-            "next_action": (
-                "上传代码并提交审核" if (configured and qa_passed and dist_exists)
-                else f"先解决: {'; '.join(plat_blocking)}"
-            ),
-            "submit_url": reg.get("submit_url", reg.get("developer_url", "")),
-            "upload_path": str(output_dir / "generated" / "miniapp" / (reg.get("upload_target", "") or "dist/build/mp-weixin")),
-            "automation_level": reg.get("automation_level", "manual"),
-        })
+        # 单平台 readiness 由平台公共层统一构造（can_upload/uploaded/upload_status 语义一致）
+        platform_readiness.append(plat_readiness.normalize_platform_readiness(
+            platform_id=plat, status=status, configured=configured,
+            missing_fields=missing_fields, qa_passed=qa_passed, dist_exists=dist_exists,
+            upload_path=upload_path,
+        ))
 
     # Global blocking / warning issues
     blocking_issues = []
@@ -2144,9 +2123,12 @@ def build_submission_readiness(best_app: dict, opportunity: dict, qa: dict,
         blocking_issues.append("构建产物 dist/build/mp-weixin 缺失")
     if not any_configured:
         blocking_issues.append("尚未配置任何平台授权（缺 AppID/密钥）")
-    # These are always required for a real submission and never auto-produced:
-    blocking_issues.append("缺少真机测试截图，需人工准备")
-    blocking_issues.append("未在目标平台真机测试")
+    # 人工阻塞项（始终需要，且无法自动产出）—— 单独列出供 review_ready 判定
+    human_blockers = [
+        "缺少真机测试截图，需人工准备",
+        "未在目标平台真机测试",
+    ]
+    blocking_issues.extend(human_blockers)
 
     warning_issues = [
         "生成代码为 MVP 模板，建议人工 review 业务逻辑",
@@ -2172,7 +2154,12 @@ def build_submission_readiness(best_app: dict, opportunity: dict, qa: dict,
             runnable_level = rt.get("runnable_level", "buildable")
     except Exception:
         pass
-    any_upload_ready = any(p.get("can_upload") for p in platform_readiness)
+
+    materials_ready = (output_dir / "listing-materials.json").exists()
+    # 顶层就绪度由平台公共层聚合（upload_ready=可上传 / upload_completed=已上传 / review_ready）
+    summary = plat_readiness.build_submission_readiness_summary(
+        platform_readiness, qa_passed=qa_passed,
+        materials_ready=materials_ready, human_blockers=human_blockers)
 
     return {
         "job_id": _pipeline_job_id,
@@ -2188,13 +2175,14 @@ def build_submission_readiness(best_app: dict, opportunity: dict, qa: dict,
         "target_platforms": [p["platform"] for p in platform_readiness],
         "rejected_platforms": rejected_platforms,
         "platform_readiness": platform_readiness,
-        # —— L5 分阶段就绪（每一档独立表达，不再一律 passed）——
+        # —— L5 分阶段就绪（每一档独立语义，见 PLATFORM_READINESS_CONTRACT.md）——
         "code_generated": True,
         "build_passed": bool(qa.get("checks", {}).get("build_passed")),
         "qa_passed": qa_passed,
-        "materials_ready": (output_dir / "listing-materials.json").exists(),
-        "upload_ready": any_upload_ready,
-        "review_ready": len(blocking_issues) == 0,
+        "materials_ready": materials_ready,
+        "upload_ready": summary["upload_ready"],            # 是否具备上传条件（∃ can_upload）
+        "upload_completed": summary["upload_completed"],    # 是否已上传成功（∃ uploaded）
+        "review_ready": summary["review_ready"],            # 是否可进入审核提交阶段（平台层判定）
         "runtime_ready": runtime_ready,
         "runnable_level": runnable_level,
         "next_action": (

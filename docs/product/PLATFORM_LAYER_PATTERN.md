@@ -54,3 +54,17 @@ upload 结果 → update_submit_status() + update_submission_readiness()（双 a
 
 **原则**：平台差异收敛在 `core/platforms/<platform>/`，CLI/vendor 细节收敛在 `core/integrations/`，
 公共结构走 `common/`，清单走 `registry.py`。
+
+---
+
+## 补充（本轮）：registry 为唯一元数据源 + readiness 聚合
+
+- `core/platforms/registry.py` 现为平台元数据**唯一访问入口**：以 `data/platforms/platform-registry.json`
+  为 legacy backing，但业务层（runner/API）一律经 registry 函数获取
+  （list_platforms / get_platform / supports_action / is_upload_automatable / get_submit_url /
+  get_platform_display / build_platform_snapshot），不再直接读 JSON → 消灭两套真相。
+- `core/platforms/common/readiness.py` 统一就绪度聚合：normalize_platform_readiness /
+  compute_upload_ready / compute_upload_completed / compute_review_ready /
+  merge_platform_upload_result / build_submission_readiness_summary。
+  runner 与 wechat/upload 都调它，不各自拼 upload_ready/review_ready。
+- 字段语义契约见 [PLATFORM_READINESS_CONTRACT.md](PLATFORM_READINESS_CONTRACT.md)。

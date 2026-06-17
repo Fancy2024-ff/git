@@ -110,6 +110,31 @@ def test_readiness_blocked_without_auth_or_qa(pipe, tmp_path):
     assert any("QA" in b for b in readiness["blocking_issues"])
 
 
+def test_readiness_unified_upload_contract(pipe, tmp_path):
+    """统一语义：upload_ready=可上传 / upload_completed=已上传 / review_ready 不因上传 true。
+    平台元数据来自 registry（name_cn/submit_url/automation_level）。"""
+    pipe._pipeline_job_id = "jobC"
+    opportunity = {"target_platforms": ["wechat"]}
+    qa = {"passed": True, "checks": {"dist_exists": True, "build_passed": True}}
+    r = pipe.build_submission_readiness({"name_cn": "演示"}, opportunity, qa, tmp_path, "demo")
+    # 新字段齐备
+    for k in ("upload_ready", "upload_completed", "review_ready"):
+        assert k in r
+    w = next(p for p in r["platform_readiness"] if p["platform"] == "wechat")
+    # 平台项新语义字段
+    assert "can_upload" in w and "uploaded" in w and "upload_status" in w
+    assert w["uploaded"] is False and w["upload_status"] == "not_uploaded"
+    # 未配置授权 → 不可上传；已上传 false；有人工阻塞 → review_ready false
+    assert w["can_upload"] is False
+    assert r["upload_completed"] is False
+    assert r["review_ready"] is False
+    # 元数据来自 registry
+    assert w["name_cn"] == "微信小程序"
+    assert w["submit_url"].startswith("http")
+    assert w["automation_level"] == "semi_automatic"
+
+
+
 # --- P1-8: artifact manifest -------------------------------------------------
 
 def test_artifact_manifest_marks_blocked(pipe, tmp_path):

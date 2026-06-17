@@ -164,11 +164,11 @@ def update_submit_status(job_dir: Path, upload_result: dict) -> None:
 def update_submission_readiness(job_dir: Path, upload_result: dict) -> None:
     """把上传结果真联动到 submission-readiness-report.json。永不抛异常。
 
-    核心原则（与 submit-status 不矛盾）：
-    - 上传成功 → wechat 项 can_upload=true、upload_status=uploaded、next_action=去后台提审；
-      新增 upload_ready=true；但 review_ready 绝不因上传成功置 true（仍需人工提审 + 截图/真机）。
-    - 上传失败 → wechat 项体现失败原因，加入 blocking_issues（去重），upload_ready=false。
-    - 顶层 ready_to_submit/is_ready_to_submit 维持原业务判定（不因上传而置 true）。
+    语义统一（见 PLATFORM_READINESS_CONTRACT.md，与 runner/common.readiness 一致）：
+    - upload_ready  = ∃ 平台 can_upload（"具备上传条件"）→ 上传成功/失败都不改它
+    - upload_completed = ∃ 平台 uploaded（"已上传成功"）→ 成功后 true
+    - review_ready  = 平台层判定（有人工阻塞则 false）→ 上传成功绝不置 true
+    - 成功：wechat.uploaded=true / upload_status=uploaded；失败：uploaded=false / upload_failed
     """
     f = Path(job_dir) / "submission-readiness-report.json"
     if not f.exists():
@@ -176,39 +176,40 @@ def update_submission_readiness(job_dir: Path, upload_result: dict) -> None:
     passed = bool(upload_result.get("upload_passed"))
     msg = upload_result.get("message", "")
     try:
+        sys.path.insert(0, str(_CORE))
+        from platforms.common import readiness as plat_readiness
+
         data = json.loads(f.read_text(encoding="utf-8"))
+        prs = data.get("platform_readiness", [])
 
-        # 1) platform_readiness 中 wechat 项联动
-        for plat in data.get("platform_readiness", []):
+        # 1) 合并 wechat 上传结果（语义由公共层 merge 决定）
+        for i, plat in enumerate(prs):
             if plat.get("platform") == "wechat":
-                if passed:
-                    plat["uploaded"] = True
-                    plat["upload_status"] = "uploaded"
-                    plat["next_action"] = "开发版已上传，去 mp.weixin.qq.com 后台提交审核"
-                else:
-                    plat["uploaded"] = False
-                    plat["upload_status"] = "upload_failed"
-                    plat["next_action"] = upload_result.get("next_action", msg)
+                prs[i] = plat_readiness.merge_platform_upload_result(plat, upload_result)
+        data["platform_readiness"] = prs
 
-        # 2) upload_ready：是否有平台已成功上传开发版
-        any_uploaded = any(p.get("uploaded") for p in data.get("platform_readiness", []))
-        data["upload_ready"] = any_uploaded
+        # 2) 顶层就绪度重算（upload_ready=可上传 不漂移 / upload_completed=已上传 / review_ready 平台层）
+        human_blockers = [b for b in data.get("blocking_issues", [])
+                          if "截图" in b or "真机" in b]
+        summary = plat_readiness.build_submission_readiness_summary(
+            prs, qa_passed=bool(data.get("qa_passed")),
+            materials_ready=bool(data.get("materials_ready", True)),
+            human_blockers=human_blockers)
+        data["upload_ready"] = summary["upload_ready"]
+        data["upload_completed"] = summary["upload_completed"]
+        data["review_ready"] = summary["review_ready"]
 
-        # 3) blocking / warning 联动
+        # 3) blocking 联动（失败追加去重 / 成功清理）
         blocking = data.get("blocking_issues", [])
         fail_note = f"微信上传失败：{msg}"
         if not passed:
             if fail_note not in blocking:
                 blocking.append(fail_note)
         else:
-            # 成功则清掉历史的微信上传失败阻塞项
             blocking = [b for b in blocking if not b.startswith("微信上传失败")]
         data["blocking_issues"] = blocking
 
-        # 4) review_ready：绝不因上传成功置 true（仍需人工提审）
-        data.setdefault("review_ready", False)
-
-        # 5) 顶层 next_action：上传成功后提示提审，但不改 ready_to_submit
+        # 4) 顶层 next_action：成功提示提审，但不改 ready_to_submit
         if passed:
             data["next_action"] = "微信开发版已上传，下一步人工去微信后台提交审核"
 

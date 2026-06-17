@@ -97,3 +97,14 @@ config_missing / upload_disabled / dist_missing / cli_missing / auth_failed / up
 - submit-status: `upload_status=failed`
 - readiness: `platform_readiness[wechat].upload_status=upload_failed`、`upload_ready=false`、
   `blocking_issues` 追加「微信上传失败：<原因>」
+
+---
+
+## 补充（本轮）：readiness 语义统一
+
+- 字段契约迁至 [PLATFORM_READINESS_CONTRACT.md](PLATFORM_READINESS_CONTRACT.md)（权威）。
+- 关键修正：`upload_ready`=「可上传」（具备条件，失败不漂移），新增 `upload_completed`=「已上传成功」。
+  上一轮误把 upload_ready 当「已上传」的问题已修复。
+- `update_submission_readiness` 改为调 `common/readiness` 重算顶层 upload_ready/upload_completed/review_ready，
+  与 runner 同一套逻辑，submit-status 与 readiness 不再矛盾。
+- 上传成功仍 **不** 置 review_ready（微信需人工截图/真机/后台提审）。

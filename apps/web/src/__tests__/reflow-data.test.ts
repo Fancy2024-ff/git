@@ -107,6 +107,43 @@ describe('submit status mapper', () => {
     expect(reviewLabel('in_review').text).toBe('审核中')
     expect(uploadLabel('uploaded').text).toBe('已上传')
   })
+
+  it('语义区分：可上传(can_upload) ≠ 已上传(uploaded)', () => {
+    // readiness：可上传但还没上传
+    const views = buildSubmitViews({
+      platformReadiness: [{ platform: 'wechat', name_cn: '微信小程序', configured: true,
+                            can_upload: true, uploaded: false, upload_status: 'not_uploaded' }],
+      submitStatus: [], targetPlatforms: ['wechat'], authStatus: [], distExists: true,
+    })
+    const v = views[0]
+    expect(v.can_upload).toBe(true)       // 可上传
+    expect(v.uploaded).toBe(false)        // 但未上传
+    expect(v.upload_status).toBe('not_started')
+    expect(v.next_action).toContain('上传到微信开发版本')  // 提示去上传，而非"已上传"
+  })
+
+  it('readiness 的 uploaded=true → 已上传，提示提审', () => {
+    const views = buildSubmitViews({
+      platformReadiness: [{ platform: 'wechat', name_cn: '微信小程序', configured: true,
+                            can_upload: true, uploaded: true, upload_status: 'uploaded' }],
+      submitStatus: [], targetPlatforms: ['wechat'], authStatus: [], distExists: true,
+    })
+    const v = views[0]
+    expect(v.uploaded).toBe(true)
+    expect(v.upload_status).toBe('uploaded')
+    expect(v.next_action).toContain('提交审核')
+  })
+
+  it('readiness 上传失败 → upload_failed 映射为 failed，提示重试', () => {
+    const views = buildSubmitViews({
+      platformReadiness: [{ platform: 'wechat', name_cn: '微信小程序', configured: true,
+                            can_upload: true, uploaded: false, upload_status: 'upload_failed' }],
+      submitStatus: [], targetPlatforms: ['wechat'], authStatus: [], distExists: true,
+    })
+    expect(views[0].upload_status).toBe('failed')
+    expect(views[0].uploaded).toBe(false)
+    expect(views[0].next_action).toContain('重试')
+  })
 })
 
 describe('error message mapper', () => {

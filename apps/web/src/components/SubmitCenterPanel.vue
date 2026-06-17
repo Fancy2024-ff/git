@@ -124,6 +124,10 @@ async function upload(v: PlatformSubmitView) {
             <span class="sg-val" :class="v.dist_exists ? 'v--green' : 'v--gray'">{{ v.dist_exists ? 'dist 存在' : '缺失' }}</span>
           </div>
           <div class="sg-item">
+            <span class="sg-label">可上传</span>
+            <span class="sg-val" :class="v.can_upload ? 'v--green' : 'v--gray'">{{ v.can_upload ? '已具备条件' : '暂不可' }}</span>
+          </div>
+          <div class="sg-item">
             <span class="sg-label">上传</span>
             <span class="sg-val" :class="'v--' + uploadLabel(v.upload_status).tone">{{ uploadLabel(v.upload_status).text }}</span>
           </div>

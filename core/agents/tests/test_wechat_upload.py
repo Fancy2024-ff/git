@@ -210,7 +210,8 @@ def test_readiness_synced_on_upload_success(tmp_path):
     # 两个 artifact 不矛盾：都体现已上传
     assert w_ss["upload_status"] == "uploaded"
     assert w_rd["uploaded"] is True and w_rd["upload_status"] == "uploaded"
-    assert rd["upload_ready"] is True
+    assert rd["upload_ready"] is True          # 具备上传条件
+    assert rd["upload_completed"] is True       # 已上传成功
     # 上传成功 ≠ review_ready
     assert rd["review_ready"] is False
     assert "提交审核" in w_rd["next_action"]
@@ -231,7 +232,11 @@ def test_readiness_synced_on_upload_failure(tmp_path):
     assert ss["platforms"][0]["upload_status"] == "failed"
     w_rd = next(p for p in rd["platform_readiness"] if p["platform"] == "wechat")
     assert w_rd["upload_status"] == "upload_failed"
-    assert rd["upload_ready"] is False
+    assert w_rd["uploaded"] is False
+    # 失败不改"可上传"语义：平台仍具备上传条件（configured+dist），upload_ready 不漂移
+    assert rd["upload_ready"] is True
+    # 已上传成功为 false
+    assert rd["upload_completed"] is False
     assert any("微信上传失败" in b for b in rd["blocking_issues"])
 
 
@@ -242,7 +247,10 @@ def test_platform_registry_lists_wechat():
     assert "wechat" in registry.list_platforms()
     assert registry.supports_action("wechat", registry.ACTION_UPLOAD) is True
     assert registry.supports_action("wechat", registry.ACTION_REVIEW) is False  # 自动提审未做
-    snap = registry.snapshot()
+    assert registry.is_upload_automatable("wechat") is True
+    assert registry.is_upload_automatable("alipay") is False   # manual
+    assert registry.get_submit_url("wechat").startswith("http")
+    snap = registry.build_platform_snapshot()
     assert "wechat" in snap["implemented_upload"]
 
 

@@ -10,7 +10,8 @@ export interface PlatformSubmitView {
   configured: boolean         // 授权是否已配置
   missing_fields: string[]    // 缺哪些配置
   dist_exists: boolean        // 构建产物是否存在
-  can_upload: boolean         // 是否可上传
+  can_upload: boolean         // 可上传：已具备自动上传条件（≠已上传）
+  uploaded: boolean           // 已上传：开发版已上传到平台后台
   upload_status: UploadStatus
   review_status: ReviewStatus
   released: boolean
@@ -48,8 +49,8 @@ function mapReview(raw: string | undefined): ReviewStatus {
 
 function mapUpload(raw: string | undefined): UploadStatus {
   if (raw === 'uploaded' || raw === 'success') return 'uploaded'
-  if (raw === 'failed') return 'failed'
-  return 'not_started'
+  if (raw === 'failed' || raw === 'upload_failed') return 'failed'
+  return 'not_started'   // not_uploaded / not_started / undefined
 }
 
 /** 合并多来源，产出每个平台的上架视图。以 readiness.platform_readiness 为主干。 */
@@ -66,10 +67,13 @@ export function buildSubmitViews(src: SubmitSources): PlatformSubmitView[] {
     const st = statusById.get(id)
     const configured = !!(pr.configured ?? auth?.configured)
     const missing = pr.missing_fields || auth?.missing_config || []
-    const upload = mapUpload(st?.upload_status)
+    // upload_status / uploaded 以 readiness 为准（统一契约），submit-status 为兜底
+    const upload = mapUpload(pr.upload_status ?? st?.upload_status)
+    const uploaded = !!(pr.uploaded ?? (upload === 'uploaded'))
     const review = mapReview(st?.review_status)
     const released = st?.release_status === 'released'
-    const canUpload = !!(pr.can_upload ?? auth?.can_upload) && src.distExists
+    // can_upload="可上传"语义：readiness 已算好（configured+dist+可自动化）；不等于已上传
+    const canUpload = !!(pr.can_upload ?? (auth?.can_upload && src.distExists))
 
     return {
       platform_id: id,
@@ -79,25 +83,26 @@ export function buildSubmitViews(src: SubmitSources): PlatformSubmitView[] {
       missing_fields: missing,
       dist_exists: src.distExists,
       can_upload: canUpload,
+      uploaded,
       upload_status: upload,
       review_status: review,
       released,
       next_owner: st?.next_action_owner === 'agent' ? 'agent' : 'human',
-      next_action: nextActionText({ configured, canUpload, upload, review, released, missing, id }),
+      next_action: nextActionText({ configured, canUpload, uploaded, upload, review, released, missing, id }),
     }
   })
   return views
 }
 
 function nextActionText(o: {
-  configured: boolean; canUpload: boolean; upload: UploadStatus;
+  configured: boolean; canUpload: boolean; uploaded: boolean; upload: UploadStatus;
   review: ReviewStatus; released: boolean; missing: string[]; id: string
 }): string {
   if (o.released) return '已发布上线'
   if (o.review === 'approved') return '审核通过，可发布'
   if (o.review === 'in_review') return '审核中，等待平台结果'
   if (o.review === 'rejected') return '被拒，查看原因后修正重提'
-  if (o.upload === 'uploaded') return '代码已上传，去平台后台提交审核（人工）'
+  if (o.uploaded || o.upload === 'uploaded') return '开发版已上传，去平台后台提交审核（人工）'
   if (o.upload === 'failed') return '上传失败，检查配置后重试'
   if (!o.configured) {
     const fields = o.missing.length ? `（缺 ${o.missing.join(', ')}）` : ''
