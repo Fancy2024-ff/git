@@ -63,7 +63,10 @@ export const api = {
   saveRealInputs: (apps: any[]) => post('/api/real-inputs/apps', apps),
   getPlatforms: () => get<{ platforms: any[]; total: number }>('/api/platforms'),
   getPlatformAuth: () => get<{ platforms: any[] }>('/api/platform-auth/status'),
-  uploadWechat: () => post<{ upload_passed: boolean; reason: string }>('/api/platforms/wechat/upload'),
+  uploadWechat: (jobId: string) => post<{
+    upload_passed: boolean; status: string; provider: string; message: string;
+    error_code: string; next_action: string; version?: string; dist_path?: string
+  }>('/api/platforms/wechat/upload', { job_id: jobId }),
 }
 
 export interface WSCallbacks {

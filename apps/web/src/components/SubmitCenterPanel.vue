@@ -63,13 +63,18 @@ const runtimeBanner = computed(() => {
 })
 
 async function upload(v: PlatformSubmitView) {
-  if (v.platform_id !== 'wechat' || !v.can_upload) return
+  if (v.platform_id !== 'wechat') return
+  const jobId = props.job?.id
+  if (!jobId) {
+    uploadResult.value[v.platform_id] = { ok: false, msg: '无当前任务，无法上传' }
+    return
+  }
   uploadingId.value = v.platform_id
   try {
-    const res = await api.uploadWechat()
+    const res = await api.uploadWechat(jobId)
     uploadResult.value[v.platform_id] = res.upload_passed
-      ? { ok: true, msg: '代码已上传到微信后台开发版本，下一步去 mp.weixin.qq.com 提交审核。' }
-      : { ok: false, msg: res.reason || '上传未成功' }
+      ? { ok: true, msg: `代码已上传到微信后台开发版本（${res.provider}）。下一步：${res.next_action}` }
+      : { ok: false, msg: `${res.message || '上传未成功'}${res.next_action ? '（' + res.next_action + '）' : ''}` }
   } catch (e: any) {
     uploadResult.value[v.platform_id] = { ok: false, msg: toUserMessage(e) }
   } finally {

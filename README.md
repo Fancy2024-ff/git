@@ -180,7 +180,7 @@ npm test -- --run
 - [ ] 接入 Claude API 替换本地评分规则
 - [ ] LLM 驱动的代码增强（更智能的页面逻辑）
 - [ ] 审核结果回填 + 自动复盘迭代
-- [ ] miniprogram-ci 自动上传（替代手动上架）
+- [x] miniprogram-ci 微信开发版上传（已接通，见 docs/product/WECHAT_UPLOAD_INTEGRATION.md；自动提审仍待做）
 - [ ] 任务队列替换子进程模型（支持并发 Pipeline）
 - [ ] SQLite/PostgreSQL 替换 JSON 文件数据库
 - [ ] Rate limiting

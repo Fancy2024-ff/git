@@ -587,33 +587,27 @@ def get_platform_auth_status():
     return {"platforms": platforms_status}
 
 
+class WechatUploadRequest(BaseModel):
+    job_id: str = ""
+
+
 @app.post("/api/platforms/wechat/upload", dependencies=[Depends(verify_api_key)])
-def wechat_upload():
-    """Attempt WeChat upload – fails gracefully if not configured."""
-    config_file = PLATFORM_AUTH_DIR / "wechat.json"
-    if not config_file.exists():
-        return {"upload_passed": False, "reason": "wechat.json not found in platform-auth"}
+def wechat_upload(req: WechatUploadRequest = WechatUploadRequest()):
+    """微信开发版上传（薄路由）：鉴权 + 参数 + 调平台层 service，不在此承载上传逻辑。
 
-    try:
-        config = _read_json(config_file)
-    except Exception as e:
-        return {"upload_passed": False, "reason": f"config parse error: {e}"}
+    真实执行在 core/platforms/wechat/upload.py → integrations/platform_clis/miniprogram_ci.py。
+    """
+    if not req.job_id:
+        raise HTTPException(400, "job_id is required")
+    job_dir = _safe_job_dir(req.job_id)
+    if not job_dir.exists():
+        raise HTTPException(404, "Job not found")
 
-    if not config.get("appid") or not config.get("private_key_path"):
-        return {"upload_passed": False, "reason": "appid or private_key_path missing"}
-
-    if not config.get("upload_enabled"):
-        return {"upload_passed": False, "reason": "upload_enabled is false"}
-
-    import shutil
-    if not shutil.which("npx"):
-        return {"upload_passed": False, "reason": "npx not found on PATH"}
-
-    return {
-        "upload_passed": False,
-        "reason": "miniprogram-ci integration pending",
-        "config_valid": True,
-    }
+    from platforms.wechat.upload import upload_dev_version, update_submit_status
+    result = upload_dev_version(job_dir=job_dir, platform_auth_dir=PLATFORM_AUTH_DIR)
+    # 上传结果写回 submit-status.json（artifact 联动）
+    update_submit_status(job_dir, result)
+    return result
 
 
 # ---------------------------------------------------------------------------
