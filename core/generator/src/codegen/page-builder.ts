@@ -3,7 +3,9 @@
  *
  * Strategy (fixed):
  *   1. ALWAYS copy the complete `base` template first (guarantees a buildable project).
- *   2. Overlay the requested template (ai-tool / ai-chat / ai-image) on top.
+ *   2. Overlay the requested official template (text_ai / image_ai / ocr_scan /
+ *      speech_ai / video_light / utility_tool) on top. Deprecated aliases
+ *      (ai-tool / ai-chat / ai-image) are normalized via template-registry.
  *   3. Generate PRD feature pages (without clobbering template pages).
  *   4. Write manifest.json -> src/manifest.json and pages.json -> src/pages.json
  *      (the uni-app CLI expects them under src/).
@@ -11,6 +13,11 @@
 
 import path from "path";
 import fs from "fs-extra";
+import {
+  DEFAULT_TEMPLATE,
+  normalizeTemplateName,
+  templateExists,
+} from "./template-registry";
 
 interface PRDFeature {
   name: string;
@@ -36,10 +43,8 @@ interface GenerateResult {
   generated_files_count: number;
 }
 
-const ALLOWED_TEMPLATES = ["base", "ai-tool", "ai-chat", "ai-image"] as const;
-type TemplateName = (typeof ALLOWED_TEMPLATES)[number];
-
-// Reserved template page names that PRD features must never overwrite.
+// 模板规则统一来自 template-registry（单一事实源）。
+// 保留页面名常量：PRD feature 不得覆盖这些模板自带页。
 const RESERVED_PAGES = new Set(["index", "form", "result", "profile", "chat", "canvas"]);
 
 /**
@@ -85,19 +90,16 @@ function sanitizePageName(name: string, index: number): string {
 
 export async function generateProject(
   prd: PRD,
-  template: string = "ai-tool"
+  template: string = DEFAULT_TEMPLATE
 ): Promise<GenerateResult> {
   if (!prd || !prd.app_name) {
     throw new Error("PRD with app_name is required");
   }
 
-  // Validate template; fall back to ai-tool for anything unknown.
-  let fallbackUsed = false;
-  let selected = template as TemplateName;
-  if (!ALLOWED_TEMPLATES.includes(selected)) {
-    selected = "ai-tool";
-    fallbackUsed = true;
-  }
+  // 归一化模板：别名→正式名，未知→text_ai（统一 fallback）。
+  // fallbackUsed = 原始入参既非 base、也非已知正式名/别名。
+  let fallbackUsed = !templateExists(template);
+  const selected = normalizeTemplateName(template);
 
   const projectName =
     prd.app_name

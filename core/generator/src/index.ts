@@ -6,6 +6,11 @@
 import crypto from "crypto";
 import express from "express";
 import { generateProject } from "./codegen/page-builder";
+import {
+  listOfficialTemplates,
+  listDeprecatedAliases,
+  getDefaultTemplate,
+} from "./codegen/template-registry";
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
@@ -68,7 +73,7 @@ app.post("/generate", async (req, res) => {
   try {
     const body = req.body || {};
     const prd = body.prd ?? body;
-    const template = body.template ?? "ai-tool";
+    const template = body.template ?? getDefaultTemplate();
 
     if (!prd || !prd.app_name || !Array.isArray(prd.core_features)) {
       res.status(400).json({
@@ -85,15 +90,23 @@ app.post("/generate", async (req, res) => {
   }
 });
 
-// List available templates
+// List available templates（正式 6 类 + base 底座；旧三类仅作 deprecated alias）
 app.get("/templates", (_req, res) => {
+  const descriptions: Record<string, string> = {
+    text_ai: "文本 AI（写作/翻译/摘要/对话）",
+    image_ai: "图像 AI（抠图/证件照/头像/增强）",
+    ocr_scan: "OCR 扫描识别（文档/票据/表格）",
+    speech_ai: "语音 AI（配音/TTS/语音转写）",
+    video_light: "轻视频（摘要/封面/脚本）",
+    utility_tool: "实用工具（计算/转换/查询）",
+  };
   res.json({
     templates: [
-      { name: "base", description: "空白基础模板" },
-      { name: "ai-tool", description: "AI 工具类 (文字/翻译/摘要)" },
-      { name: "ai-chat", description: "AI 对话类 (聊天助手)" },
-      { name: "ai-image", description: "AI 图片类 (生成/编辑/风格)" },
+      { name: "base", description: "公共底座（始终先复制，保证可构建）" },
+      ...listOfficialTemplates().map((name) => ({ name, description: descriptions[name] || name })),
     ],
+    deprecated_aliases: listDeprecatedAliases(),
+    default_template: getDefaultTemplate(),
   });
 });
 

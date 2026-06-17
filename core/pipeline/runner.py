@@ -1182,10 +1182,8 @@ def codegen_agent(app: dict, prd_json: dict, output_dir: Path, app_type: str = "
     for d in [pages_dir / "index", pages_dir / "form", pages_dir / "result", pages_dir / "profile", utils_dir, docs_dir]:
         d.mkdir(parents=True, exist_ok=True)
 
-    # 叠加 app_type 专属模板（若存在）。text_ai 继续兼容历史 ai-tool 模板。
+    # 叠加 app_type 专属模板（若存在）。模板目录已统一为 6 类正式名（旧 ai-tool/ai-chat/ai-image 已迁移删除）。
     overlay_candidates = [templates_dir / template_name]
-    if app_type == "text_ai":
-        overlay_candidates.append(templates_dir / "ai-tool")  # 历史兼容，保证不回归
     applied = []
     for tmpl in overlay_candidates:
         if tmpl.exists():

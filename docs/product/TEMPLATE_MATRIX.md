@@ -8,7 +8,7 @@
 
 codegen 流程：
 1. 复制 `base` 骨架（package.json/manifest/pages.json/index/profile）
-2. 叠加 `templates/{app_type}/` 资源（text_ai 额外兼容历史 ai-tool）
+2. 叠加 `templates/{app_type}/` 资源（模板目录已统一为 6 类正式名；旧 ai-tool/ai-chat/ai-image 已迁移删除，见 GENERATOR_TEMPLATE_CONTRACT.md）
 3. `_build_feature_pages` 按 app_type 写入差异化的 form.vue + result.vue
 
 ## 六类页面差异
