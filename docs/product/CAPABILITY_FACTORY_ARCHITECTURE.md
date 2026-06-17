@@ -133,3 +133,13 @@ image 是唯一带**异步任务接口**（create_task → poll_task）的能力
 1. 在 `<capability>/providers/` 新增 `<vendor>.py`，继承 `BaseProvider`，实现 `is_configured/required_env/execute`
 2. 在对应 adapter 的 `__init__` 换绑该 provider（或按 env 选择）
 3. registry / snapshot / artifact / 前端自动反映新状态——**业务层、模板层、API 层均不动**
+
+---
+
+## 补充：需求分析升级为产品决策框架
+
+第 2 步需求分析已升级为成熟决策框架（`core/agents/research/`，规则驱动）：8 维度分析 +
+market_opportunity_score / miniapp_feasibility_score 双总分 + 决策门槛 →
+recommendation(immediate_execute/split_then_execute/research_only/reject) + MVP 拆解。
+与 capabilities 联动判断能力可实现性；平台型/复杂产品（如 Canva）正确导向 split_then_execute。
+详见 [DEMAND_ANALYSIS_FRAMEWORK.md](DEMAND_ANALYSIS_FRAMEWORK.md)。

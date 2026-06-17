@@ -2260,6 +2260,41 @@ def _use_llm() -> bool:
         return False
 
 
+def _run_product_decision(best_app: dict, app_type: str, opportunity: dict, gap: dict,
+                          analysis: dict, output_dir: Path) -> None:
+    """成熟需求分析框架：8 维度 + MVP 拆解 + 决策，写 5 个 artifact，回写 analysis 关键字段。永不抛异常。"""
+    sys.path.insert(0, str(PROJECT_ROOT / "core" / "agents"))
+    sys.path.insert(0, str(PROJECT_ROOT / "core"))
+    try:
+        from capabilities.registry import build_capability_snapshot
+        from research.product_research import analyze_product
+        from research.artifacts import write_research_artifacts
+        cap_snapshot = build_capability_snapshot(app_type)
+        result = analyze_product(best_app, app_type=app_type, opportunity=opportunity,
+                                 gap=gap, cap_snapshot=cap_snapshot, use_llm=_use_llm())
+        write_research_artifacts(output_dir, result)
+        dec = result["decision"]
+        # 回写 analysis 关键决策字段（兼容现有 analysis.json 消费）
+        analysis["market_opportunity_score"] = dec["market_opportunity_score"]
+        analysis["miniapp_feasibility_score"] = dec["miniapp_feasibility_score"]
+        analysis["recommendation"] = dec["recommendation"]
+        analysis["execution_confidence"] = dec["execution_confidence"]
+        analysis["blocking_reasons"] = dec["blocking_reasons"]
+        analysis["recommended_mvp_name"] = result["split_plan"]["recommended_mvp"].get("name", "")
+        analysis["recommended_app_type"] = result["split_plan"]["recommended_mvp"].get("app_type", app_type)
+        # 决策字段在 analysis.json 写盘之后产生，这里回写一次保持磁盘一致
+        _write(output_dir / "analysis.json", json.dumps(analysis, ensure_ascii=False, indent=2))
+        p(f"  决策: {dec['recommendation']} | 市场 {dec['market_opportunity_score']} / 落地 {dec['miniapp_feasibility_score']}"
+          + (f" | 阻塞 {len(dec['blocking_reasons'])}" if dec['blocking_reasons'] else ""))
+    except Exception as e:
+        analysis["recommendation"] = analysis.get("recommendation", "research_only")
+        _write(output_dir / "execution-decision.json",
+               json.dumps({"recommendation": "research_only", "confidence": 0.0,
+                           "reason": f"decision error: {_safe_error(e)}",
+                           "blocking_reasons": [], "next_action": "人工复核"},
+                          ensure_ascii=False, indent=2))
+
+
 def _classify_and_write(best_app: dict, output_dir: Path) -> dict:
     """L1 分类：判断 app_type，写 app-classification.json。永不抛异常。"""
     sys.path.insert(0, str(PROJECT_ROOT / "core" / "agents"))
@@ -2546,6 +2581,14 @@ def _run_pipeline_steps(mode: str, job_id: str, output_dir: Path) -> dict:
     _write(output_dir / "opportunity-report.json", json.dumps(opportunity, ensure_ascii=False, indent=2))
     step_end(artifact="opportunity-report.json")
     step_done(f"data/outputs/{job_id}/opportunity-report.json", time.time() - t0)
+
+    # === Step 4.5: 产品决策（成熟需求分析框架）===
+    step_header(4, "产品决策分析", "ProductDecisionAgent")
+    step_start("product_decision", "产品决策分析", "ProductDecisionAgent")
+    t0 = time.time()
+    _run_product_decision(best_app, app_type, opportunity, gap, best_analysis, output_dir)
+    step_end(artifact="execution-decision.json")
+    step_done(f"data/outputs/{job_id}/execution-decision.json", time.time() - t0)
 
     # === Step 5: Generate PRD ===
     step_header(5, "生成 PRD", "PRDAgent")

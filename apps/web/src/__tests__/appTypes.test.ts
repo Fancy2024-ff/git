@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { appTypeName, runnableLevelLabel, feasibilityLabel, capabilityName } from '../data/appTypes'
-import { capabilityOverview, type OverviewInput } from '../data/overview'
+import { capabilityOverview, decisionOverview, recommendationLabel, type OverviewInput } from '../data/overview'
 
 function base(over: Partial<OverviewInput> = {}): OverviewInput {
   return {
@@ -72,5 +72,34 @@ describe('capabilityOverview', () => {
     expect(o!.factoryCapabilityReady).toBe(true)    // 工厂侧可执行
     expect(o!.appRuntimeRunnable).toBe(false)       // 小程序自身不可跑（不偷换）
     expect(o!.appRuntimeReason).toContain('provider')
+  })
+})
+
+describe('decisionOverview（产品决策展示）', () => {
+  it('无 decision → null', () => {
+    expect(decisionOverview({})).toBeNull()
+  })
+
+  it('区分市场机会高 / 落地性低 → 拆分执行', () => {
+    const o = decisionOverview({
+      decision: {
+        recommendation: 'split_then_execute', market_opportunity_score: 81,
+        miniapp_feasibility_score: 0, confidence: 0.4,
+        blocking_reasons: ['小程序落地性低（0）', '品牌/商标风险高'], next_action: '先拆分',
+      },
+      splitPlan: { recommended_mvp: { name: '证件照（垂直 MVP）', app_type: 'image_ai' } },
+    })!
+    expect(o.recommendation).toBe('split_then_execute')
+    expect(o.marketOpportunityScore).toBe(81)
+    expect(o.miniappFeasibilityScore).toBe(0)
+    expect(o.blockingReasons.length).toBe(2)
+    expect(o.recommendedMvpName).toContain('证件照')
+    expect(o.recommendedAppType).toBe('image_ai')
+  })
+
+  it('recommendationLabel 文案与色调', () => {
+    expect(recommendationLabel('immediate_execute')).toEqual({ text: '立即执行', tone: 'green' })
+    expect(recommendationLabel('split_then_execute').tone).toBe('orange')
+    expect(recommendationLabel('reject').tone).toBe('red')
   })
 })

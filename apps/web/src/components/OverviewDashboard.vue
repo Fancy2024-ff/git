@@ -4,6 +4,7 @@ import type { JobDetail, PipelineMode } from '../types/job'
 import {
   computeOverallStatus, statusLabel, oneLineConclusion,
   whyWorthIt, completionChecklist, blockers, nextActions, capabilityOverview,
+  decisionOverview, recommendationLabel,
 } from '../data/overview'
 import { appTypeName, appTypeDesc, runnableLevelLabel, feasibilityLabel, capabilityName } from '../data/appTypes'
 
@@ -29,6 +30,10 @@ const input = computed(() => ({
 }))
 
 const cap = computed(() => capabilityOverview(input.value))
+const decision = computed(() => decisionOverview({
+  decision: art.value['execution-decision.json'] || null,
+  splitPlan: art.value['mvp-split-plan.json'] || null,
+}))
 
 const status = computed(() => computeOverallStatus(input.value))
 const statusBadge = computed(() => statusLabel(status.value))
@@ -119,6 +124,29 @@ const guideSteps = [
         </span>
         <span v-if="!cap.appRuntimeRunnable && cap.appRuntimeReason" class="cap-sub">{{ cap.appRuntimeReason }}</span>
       </div>
+    </section>
+
+    <!-- Product decision: 双总分 + 执行建议（区分市场机会 vs 小程序落地性） -->
+    <section v-if="decision" class="decision-row">
+      <div class="dec-verdict" :class="'tone--' + recommendationLabel(decision.recommendation).tone">
+        <span class="dec-label">执行建议</span>
+        <span class="dec-rec">{{ recommendationLabel(decision.recommendation).text }}</span>
+        <span v-if="decision.confidence !== null" class="dec-conf">置信度 {{ decision.confidence }}</span>
+      </div>
+      <div class="dec-scores">
+        <div class="dec-score"><span class="ds-num">{{ decision.marketOpportunityScore ?? '—' }}</span><span class="ds-lbl">市场机会</span></div>
+        <div class="dec-score"><span class="ds-num">{{ decision.miniappFeasibilityScore ?? '—' }}</span><span class="ds-lbl">小程序落地性</span></div>
+      </div>
+      <div v-if="decision.recommendedMvpName" class="dec-mvp">
+        <span class="dec-label">推荐 MVP</span>
+        <span class="dec-mvp-name">{{ decision.recommendedMvpName }}</span>
+        <span v-if="decision.recommendedAppType" class="dec-mvp-type">{{ decision.recommendedAppType }}</span>
+      </div>
+      <div v-if="decision.blockingReasons.length" class="dec-blockers">
+        <span class="dec-label">阻塞</span>
+        <span v-for="(b, i) in decision.blockingReasons" :key="i" class="dec-block-chip">{{ b }}</span>
+      </div>
+      <p v-if="decision.nextAction" class="dec-next">下一步：{{ decision.nextAction }}</p>
     </section>
 
     <!-- Three core cards -->
@@ -241,6 +269,27 @@ const guideSteps = [
 .cap-chip--miss { background: var(--color-orange-subtle); color: #92400e; }
 .cap-runtime-line { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
 .rt-tag { font-size: 13px; font-weight: 600; padding: 3px 10px; border-radius: 980px; background: rgba(0,0,0,0.03); }
+
+/* Decision row */
+.decision-row { background: var(--color-surface-solid); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
+.dec-verdict { display: flex; align-items: center; gap: 12px; }
+.dec-label { font-size: 11px; color: var(--color-text-3); font-weight: 600; text-transform: uppercase; }
+.dec-rec { font-size: 18px; font-weight: 700; }
+.dec-verdict.tone--green .dec-rec { color: #166534; }
+.dec-verdict.tone--orange .dec-rec { color: #92400e; }
+.dec-verdict.tone--red .dec-rec { color: #991b1b; }
+.dec-verdict.tone--gray .dec-rec { color: var(--color-text-2); }
+.dec-conf { font-size: 12px; color: var(--color-text-3); }
+.dec-scores { display: flex; gap: 12px; }
+.dec-score { flex: 1; background: rgba(0,0,0,0.03); border-radius: var(--radius-sm); padding: 10px; text-align: center; }
+.ds-num { display: block; font-size: 22px; font-weight: 700; color: var(--color-text-1); }
+.ds-lbl { display: block; font-size: 11px; color: var(--color-text-3); margin-top: 2px; }
+.dec-mvp { display: flex; align-items: center; gap: 10px; }
+.dec-mvp-name { font-size: 14px; font-weight: 600; color: var(--color-text-1); }
+.dec-mvp-type { font-size: 12px; color: var(--color-blue); background: var(--color-blue-subtle); padding: 1px 8px; border-radius: 980px; }
+.dec-blockers { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.dec-block-chip { font-size: 12px; padding: 3px 10px; border-radius: 980px; background: var(--color-orange-subtle); color: #92400e; }
+.dec-next { font-size: 13px; color: var(--color-text-2); }
 
 /* Cards */
 .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }

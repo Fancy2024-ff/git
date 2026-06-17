@@ -188,3 +188,42 @@ export function capabilityOverview(input: OverviewInput): CapabilityOverview | n
     appRuntimeReason: ex?.app_runtime?.reason ?? '',
   }
 }
+
+/** 产品决策总览：双总分 + 执行建议 + 推荐 MVP。来自 execution-decision.json + mvp-split-plan.json。 */
+export interface DecisionOverview {
+  recommendation: string            // immediate_execute / split_then_execute / research_only / reject
+  marketOpportunityScore: number | null
+  miniappFeasibilityScore: number | null
+  confidence: number | null
+  blockingReasons: string[]
+  nextAction: string
+  recommendedMvpName: string
+  recommendedAppType: string
+}
+
+const RECOMMENDATION_LABELS: Record<string, { text: string; tone: string }> = {
+  immediate_execute: { text: '立即执行', tone: 'green' },
+  split_then_execute: { text: '拆分后执行', tone: 'orange' },
+  research_only: { text: '仅调研', tone: 'gray' },
+  reject: { text: '不建议做', tone: 'red' },
+}
+
+export function recommendationLabel(rec: string | undefined): { text: string; tone: string } {
+  return RECOMMENDATION_LABELS[rec || ''] || { text: rec || '—', tone: 'gray' }
+}
+
+export function decisionOverview(input: { decision?: any | null; splitPlan?: any | null } = {}): DecisionOverview | null {
+  const d = input.decision
+  const sp = input.splitPlan
+  if (!d) return null
+  return {
+    recommendation: d.recommendation || 'research_only',
+    marketOpportunityScore: d.market_opportunity_score ?? null,
+    miniappFeasibilityScore: d.miniapp_feasibility_score ?? null,
+    confidence: d.confidence ?? d.execution_confidence ?? null,
+    blockingReasons: d.blocking_reasons || [],
+    nextAction: d.next_action || '',
+    recommendedMvpName: sp?.recommended_mvp?.name || '',
+    recommendedAppType: sp?.recommended_mvp?.app_type || '',
+  }
+}
