@@ -1,0 +1,21 @@
+{
+  "pages": [
+    { "path": "pages/index/index", "style": { "navigationBarTitleText": "首页" } },
+    { "path": "pages/form/form", "style": { "navigationBarTitleText": "功能" } },
+    { "path": "pages/result/result", "style": { "navigationBarTitleText": "结果" } },
+    { "path": "pages/profile/profile", "style": { "navigationBarTitleText": "我的" } }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarBackgroundColor": "#ffffff",
+    "backgroundColor": "#f5f5f5"
+  },
+  "tabBar": {
+    "color": "#999",
+    "selectedColor": "#333",
+    "list": [
+      { "pagePath": "pages/index/index", "text": "首页" },
+      { "pagePath": "pages/profile/profile", "text": "我的" }
+    ]
+  }
+}

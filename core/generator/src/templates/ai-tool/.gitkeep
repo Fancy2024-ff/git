@@ -1,0 +1,4 @@
+# ai-tool：通用工具题材模板（空 overlay = 仅用 base 骨架）。
+# classifier 把 text-tool / funny-video / blessing-video / 默认题材路由到 ai-tool；
+# 空 overlay 表示"不覆盖 base 的任何文件"，即通用工具形态。
+# 待这些题材需要差异化时，在此目录加 pages/* 覆盖文件即可。
