@@ -13,6 +13,10 @@ venv/
 node_modules/
 generator/dist/
 dashboard/dist/
+apps/web/dist/
+apps/web/.npm-cache/
+core/generator/dist/
+core/generator/.npm-cache/
 
 # Environment
 .env

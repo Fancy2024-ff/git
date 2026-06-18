@@ -7,11 +7,10 @@ __pycache__
 .git
 .DS_Store
 data/outputs
+data/inputs/real
 data/real_inputs
 data/platform-auth
 *.egg-info
 dist
-dashboard/dist
-generator/dist
+apps/web/dist
 .env
-agents/.env

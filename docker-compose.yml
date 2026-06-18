@@ -2,12 +2,17 @@
 # Usage:
 #   cp .env.example .env   # fill in DASHBOARD_API_KEY and ANTHROPIC_API_KEY
 #   docker compose up --build
+#
+# 架构口径：miniapp 代码生成的唯一执行真源是 Python core/generator/codegen.py
+# （由 apps/api → core/pipeline/runner.py 调用）。Node generator 服务不在生产
+# 主链路中，已从正式编排移除（仅作 vitest / Node 生态兼容工具链，见
+# core/generator/README）。因此本 compose 不再起该服务，也不再要求其鉴权/地址变量。
 
 services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile.api
+      dockerfile: infra/docker/Dockerfile.api
     ports:
       - "8000:8000"
     environment:
@@ -18,8 +23,6 @@ services:
       - DASHBOARD_ORIGIN=http://localhost:5173
       - PIPELINE_TIMEOUT_SECONDS=${PIPELINE_TIMEOUT_SECONDS:-600}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - GENERATOR_API_KEY=${GENERATOR_API_KEY:?Set GENERATOR_API_KEY in .env}
-      - GENERATOR_URL=http://generator:3001
       - NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}
       - QA_INSTALL_TIMEOUT=${QA_INSTALL_TIMEOUT:-600}
       - QA_BUILD_TIMEOUT=${QA_BUILD_TIMEOUT:-600}
@@ -33,36 +36,28 @@ services:
       - WEBAPP_LLM_MODEL=${WEBAPP_LLM_MODEL:-deepseek-chat}
     volumes:
       - ./data/outputs:/app/data/outputs
-      - ./data/real_inputs:/app/data/real_inputs
+      - ./data/inputs/real:/app/data/inputs/real
       - ./data/platform-auth:/app/data/platform-auth
-    depends_on:
-      generator:
-        condition: service_healthy
-    restart: unless-stopped
-
-  generator:
-    build:
-      context: .
-      dockerfile: Dockerfile.generator
-    ports:
-      - "3001:3001"
-    environment:
-      - NODE_ENV=production
-      - PORT=3001
-      - GENERATOR_API_KEY=${GENERATOR_API_KEY:?Set GENERATOR_API_KEY in .env}
+    healthcheck:
+      # 与 apps/api/main.py 的公共状态接口一致；dashboard 依赖此 healthcheck。
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/pipeline/status"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
     restart: unless-stopped
 
   dashboard:
     build:
       context: .
-      dockerfile: Dockerfile.dashboard
+      dockerfile: infra/docker/Dockerfile.web
       args:
         VITE_API_BASE_URL: http://localhost:8000
         VITE_WS_BASE_URL: ws://localhost:8000
         # NOTE: VITE_API_TOKEN is baked into the JS bundle at build time.
         # Changing the API key requires rebuilding this image:
         #   docker compose build dashboard
-        # For runtime-configurable tokens, see Dockerfile.dashboard's
+        # For runtime-configurable tokens, see infra/docker/Dockerfile.web's
         # /config.json approach (nginx serves a runtime config file).
         VITE_API_TOKEN: ${DASHBOARD_API_KEY:-}
     ports:

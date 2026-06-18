@@ -1,0 +1,30 @@
+"""core.integrations.llm — LLM 客户端统一接入点。
+
+所有外部 LLM 调用从 integrations 出，业务层不直接 new SDK 客户端。
+"""
+
+from langchain_anthropic import ChatAnthropic
+
+from core.runtime.config import (
+    ANTHROPIC_API_KEY,
+    ANTHROPIC_BASE_URL,
+    LLM_MODEL,
+    LLM_TEMPERATURE,
+)
+
+
+def get_llm(
+    model: str | None = None,
+    temperature: float | None = None,
+    max_tokens: int = 4096,
+) -> ChatAnthropic:
+    """Get a configured LLM instance."""
+    kwargs = dict(
+        model=model or LLM_MODEL,
+        api_key=ANTHROPIC_API_KEY,
+        temperature=temperature if temperature is not None else LLM_TEMPERATURE,
+        max_tokens=max_tokens,
+    )
+    if ANTHROPIC_BASE_URL:
+        kwargs["base_url"] = ANTHROPIC_BASE_URL
+    return ChatAnthropic(**kwargs)
