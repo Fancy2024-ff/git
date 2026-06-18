@@ -10,14 +10,16 @@
 - **Data Collector**: 七麦 API、SensorTower API、App Store Connect API
 - **Mini Program Search**: 各平台小程序搜索（搜狗微信搜索、支付宝搜索等）
 
-### Agent 编排层
-- **Opportunity Agent**: 机会评分（8 问评估框架 + LLM）
-- **Platform Agent**: 平台适配推荐（读取 platform-registry.json）
-- **PRD Agent**: LLM 驱动需求文档生成
-- **Codegen Agent**: LLM 增强代码生成
-- **QA Agent**: 自动构建 + 静态检查 + 合规检查
-- **Submit Agent**: 平台 CLI 上传（miniprogram-ci / devvit CLI 等）
-- **Review Agent**: 审核结果采集 + 复盘
+### 能力域 + Pipeline 编排层
+> 架构为 capability-domain：`core/pipeline/runner.py` 只做 step 编排，业务正文在各 `core/<域>`。
+> 运行时协议主字段为 `step` / `capability`，无 Agent 层。
+- **opportunity**: 机会评分 + Viral Score（8 维）+ 题材归类/选模板
+- **platforms**: 平台适配推荐（读取 platform-registry.json）+ 平台差异
+- **generator**: PRD 生成 + 代码生成（唯一执行真源 `core/generator/codegen.py`）
+- **growth**: 增长计划 + 分享/裂变策略
+- **qa**: 工程 QA + 增长 QA + 合规 QA + 提交就绪判断
+- **publisher**: 上架材料 + 提交包 + 平台 CLI 上传（miniprogram-ci / devvit CLI 等）+ Telegram 部署
+- **integrations / runtime / shared**: LLM 接入 / 运行时基础设施 / 跨域 schema
 
 ### 基础设施层
 - **Worker Queue**: 任务队列（Celery / BullMQ）
@@ -36,13 +38,16 @@
 
 | 模块 | 状态 | 说明 |
 |------|------|------|
-| 本地数据读取 | ✅ | data/samples + data/real_inputs |
-| 需求评分 | ✅ | 5 维度本地规则 |
+| 本地数据读取 | ✅ | data/samples（demo）+ data/inputs/real/apps.json（real，唯一 canonical 路径） |
+| 机会评分 | ✅ | 6 维度本地规则（Viral Score 为核心维度，权重 0.25） |
+| 传播力评分 | ✅ | Viral Score 8 维度，参与候选选择与机会决策 |
+| 模板工厂 | ✅ | 5 类传播型模板（avatar/sticker/pet-talk/funny-video/blessing-video）真实可构建 |
 | 平台推荐 | ✅ | 读取 platform-registry.json |
 | PRD 生成 | ✅ | 模板化 |
-| 代码生成 | ✅ | uni-app 骨架 |
+| 代码生成 | ✅ | uni-app 骨架 + 题材模板 overlay |
+| 增长产物 | ✅ | growth-plan.md / share-strategy.md |
 | 构建验证 | ✅ | npm install + build |
-| QA 检查 | ✅ | 12 项自动检查 |
+| QA 检查 | ✅ | 三层：工程 QA / 增长 QA / 合规 QA |
 | 提交包生成 | ✅ | publish-package/ |
 | 实时日志 | ✅ | WebSocket 推送 |
 | Dashboard | ✅ | Vue 3 SPA |
@@ -66,6 +71,6 @@
 
 | 模式 | 说明 | 数据源 | 频率 |
 |------|------|--------|------|
-| 试运行 | 检查 Agent 管线健康 | 本地样例 | 按需 |
+| 试运行 | 检查 pipeline 管线健康 | 本地样例 | 按需 |
 | 生产运行 | 真实选品分析 | 导入/API 采集 | 按需 → 定时 |
 | 监控模式 | 审核状态跟踪 | 平台 Webhook | 持续 |

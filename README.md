@@ -1,6 +1,10 @@
 # Mini App Factory
 
-Agent 驱动的小程序批量生产系统。自动发现 App Store / Google Play 上已验证的 AI 应用需求，识别小程序生态供给缺口，生成产品方案、代码、上架材料。
+能力域（capability domains）驱动的小程序批量生产系统。自动发现 App Store / Google Play 上已验证的 AI 应用需求，评估机会与传播力，识别小程序生态供给缺口，生成产品方案、代码、增长策略与上架材料。
+
+> 架构主心智：系统按**能力域 + pipeline 步骤（step）**组织（opportunity / generator /
+> growth / qa / publisher / platforms / integrations / runtime），不是 Agent 架构。
+> 运行时主字段为 `step` / `capability`。
 
 ## 当前 MVP 已跑通
 
@@ -12,14 +16,14 @@ Agent 驱动的小程序批量生产系统。自动发现 App Store / Google Pla
 - 生成的 dist/build/mp-weixin 可直接导入微信开发者工具
 - WebSocket 实时日志推送（per-job 路由 + 指数退避重连）
 - API 全链路认证（常量时间比较、路径穿越防御）
-- 35 个自动化测试覆盖核心路径（agents 26 + dashboard 4 + generator 5）
+- 自动化测试覆盖核心路径（core pytest + dashboard vitest + generator vitest）
 
 ## 快速开始
 
 ### 运行 Demo Pipeline
 
 ```bash
-python scripts/run_demo_pipeline.py
+python core/pipeline/runner.py
 ```
 
 执行后生成：
@@ -43,9 +47,8 @@ data/outputs/{jobId}/
 ### 启动后端 API
 
 ```bash
-cd agents
-pip install -e ".[dev]"
-python server.py
+pip install -e ".[dev]"     # 从 repo 根安装（pyproject.toml）
+python apps/api/main.py
 ```
 
 后端运行在 http://localhost:8000
@@ -53,7 +56,7 @@ python server.py
 ### 启动前端 Dashboard
 
 ```bash
-cd dashboard
+cd apps/web
 npm install
 npm run dev
 ```
@@ -72,26 +75,30 @@ npm run dev
 
 ```
 miniapp-factory/
-  scripts/
-    run_demo_pipeline.py    - MVP 演示流水线（核心入口）
-  agents/
-    server.py               - FastAPI 后端（认证、WS、Pipeline 管理）
-    config/settings.py      - 配置
-    shared/                 - 数据模型、LLM 封装、数据库
-    discovery/              - 发现 Agent（去重、gap 检测）
-    research/               - 分析 Agent
-    coding/                 - 代码生成 Agent
-    qa/                     - 质检 Agent（src/ 路径校验）
-    publisher/              - 上架 Agent
-    review/                 - 复盘 Agent
-    orchestrator/           - LangGraph 流水线
-    tests/                  - pytest 测试套件（26 cases）
-  dashboard/                - Vue 3 前端（WS 实时推送）
-  generator/                - Node.js 代码生成服务（生产鉴权）
+  pyproject.toml             - Python packaging（core + apps 单一依赖清单）
+  apps/
+    api/main.py              - FastAPI 后端（认证、WS、Pipeline 管理）
+    web/                     - Vue 3 前端（WS 实时推送）
+  core/                      - 唯一核心业务层（能力域架构）
+    pipeline/runner.py       - 编排层（只 step 编排，不含业务规则）
+    opportunity/             - 机会发现 + Opportunity/Viral Score + 题材归类/选模板
+      scrapers/              - App Store / Google Play / 小程序 抓取
+    generator/               - 唯一生成真源（模板/页面/构建基线）
+    growth/                  - 增长策略（growth-plan.md / share-strategy.md）
+    qa/                      - engineering / growth / compliance 三类质检
+    publisher/               - 上架交付（listing / publish package / Telegram 部署）
+    platforms/               - 平台规则与差异
+    integrations/            - 外部服务接入（LLM 等）
+    runtime/                 - 运行时基础设施（config/context/artifacts/database）
+    shared/                  - 跨域共享 schema/types/constants
   data/
-    samples/apps.json       - 候选 App 数据
-    outputs/                - 每次运行的产物
+    samples/apps.json        - 候选 App 数据
+    outputs/                 - 每次运行的产物
 ```
+
+> 架构落点规则见各 `core/<域>/README.md`。新增功能"一眼能判断"落点：
+> 传播/评分→opportunity，模板→generator，增长/分享→growth，质检→qa，
+> 平台差异→platforms，外部服务→integrations，运行时→runtime，公共 schema→shared。
 
 ## Docker 部署（推荐）
 
@@ -99,26 +106,20 @@ miniapp-factory/
 cp .env.example .env
 # 编辑 .env，必须设置：
 #   DASHBOARD_API_KEY — API 认证密钥
-#   GENERATOR_API_KEY — Generator 服务认证密钥
 #   ANTHROPIC_API_KEY — LLM 调用密钥（可选，demo 模式不需要）
 docker compose up --build
 ```
 
-三个服务自动编排：
-- API (FastAPI): http://localhost:8000
-- Generator (Node.js): http://localhost:3001
+两个服务自动编排：
+- API (FastAPI): http://localhost:8000 — 含 Python 生成主链路（core/generator/codegen.py）
 - Dashboard (nginx): http://localhost:5173
 
-停止：`docker compose down`
+> Node generator 服务**不在生产编排中**：miniapp 生成的唯一执行真源是 Python
+> `core/generator/codegen.py`，由 API 内的 pipeline 直接调用。Node 的
+> `core/generator`（page-builder.ts / index.ts）仅作 vitest / Node 生态兼容工具，
+> 不需要起服务、不需要 `GENERATOR_API_KEY` / `GENERATOR_URL`。详见 `core/generator/README.md`。
 
-Docker 实测状态（2026-06-14）：
-- Dockerfile.api build 通过（Python 3.11 + Node.js 22）
-- Dockerfile.generator build 通过（node:22-slim multi-stage）
-- Dockerfile.dashboard build 通过（node:22-slim build + nginx:alpine runtime）
-- `docker compose up --build` 三容器全部 healthy
-- Dashboard healthcheck 使用 `127.0.0.1`（Alpine 兼容）
-- 端到端 pipeline run 通过：QA passed, build passed, dist/build/mp-weixin 存在
-- readiness=false 是业务原因（缺 AppID/截图/真机测试），非构建失败
+停止：`docker compose down`
 
 已知部署风险：
 - `VITE_API_TOKEN` 通过 build-arg 烘焙进前端 JS bundle。内部 MVP 可接受，对外生产应改为 runtime config（nginx 提供 `/config.json`）或后端 session 方案。
@@ -134,17 +135,16 @@ Docker 实测状态（2026-06-14）：
 ## 运行测试
 
 ```bash
-# 后端 (agents) — 26 cases
-cd agents
+# 后端 core（opportunity/growth/runtime/pipeline 等）
 pip install -e ".[dev]"
-pytest tests/ -q
+python -m pytest core -q
 
-# 前端 (dashboard) — 4 cases
-cd dashboard
+# 前端 (dashboard)
+cd apps/web
 npm test -- --run
 
-# Generator — 5 cases
-cd generator
+# Generator
+cd core/generator
 npm test -- --run
 ```
 
@@ -163,11 +163,21 @@ npm test -- --run
 
 - **单 worker + 全局状态** — 同时只能运行一个 Pipeline，不支持水平扩展
 - **JSON 文件数据库** — MVP 级别，并发写受 filelock 约束
-- **LLM Agent 无单元测试** — 需要 mock LLM 调用，属于下一阶段
-- **Vue 组件零测试** — 14 个组件无 render/interaction test
-- **run_demo_pipeline.py 2000 行** — 与 agents/ 逻辑有重复，重构需整体规划
+- **核心链路为规则版 v1** — opportunity/viral/growth 评分与策略为可解释规则，LLM 增强走 `core/integrations`，属下一阶段
+- **Vue 组件零 render 测试** — 组件无 render/interaction test（数据层有测试）
 - **WebSocket token 在 query string** — 浏览器 WS API 限制，已文档化
 - **Scraper 使用搜狗/百度作为代理** — 准确率有限，短名称(≤3字符)跳过
+
+## 文档地图
+
+当前权威文档（其余历史文档已归档到 `docs/archive/` 与 `docs/reports/`，顶部均有标识）：
+
+| 主题 | 文档 |
+|---|---|
+| 项目结构 / 入口 | `docs/CODE_STRUCTURE.md`、`docs/architecture/PROJECT_STRUCTURE.md` |
+| 步骤 / 能力图 | `docs/architecture/STEP_CAPABILITY_MAP.md` |
+| 运行手册 | `docs/operation/RUNBOOK.md` |
+| 各能力域职责与落点 | `core/<域>/README.md` |
 
 ## TODO
 

@@ -1,0 +1,3 @@
+# 真实导入数据的 canonical 路径：data/inputs/real/apps.json
+# apps/api/main.py 与 docker-compose 都以此为准（data/real_inputs 仅 legacy fallback）。
+# 此 .gitkeep 保证目录存在，便于 docker bind mount。

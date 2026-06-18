@@ -1,0 +1,47 @@
+[
+  {
+    "name": "AI Avatar Studio",
+    "name_cn": "AI 头像写真馆",
+    "source": "App Store",
+    "category": "Photo & Video",
+    "description": "Generate stunning AI portrait avatars in dozens of styles from a single selfie.",
+    "description_cn": "上传一张自拍，AI 一键生成多种风格的头像与写真，支持换脸与风格切换。",
+    "rating": 4.8,
+    "review_count": 88000,
+    "downloads": 9200000,
+    "monetization": "freemium",
+    "features": ["AI portrait", "style switch", "face swap", "HD export"],
+    "features_cn": ["AI 写真", "风格切换", "换脸", "高清导出"],
+    "keywords": ["avatar", "头像", "写真", "portrait"]
+  },
+  {
+    "name": "Funny Clip Maker",
+    "name_cn": "搞笑视频神器",
+    "source": "Google Play",
+    "category": "Entertainment",
+    "description": "Turn your clips into hilarious funny short videos with one-tap meme effects and captions.",
+    "description_cn": "一键把素材做成爆笑搞笑短视频，自带沙雕特效、字幕和接龙合拍玩法，做完直接分享到短视频平台。",
+    "rating": 4.6,
+    "review_count": 54000,
+    "downloads": 6100000,
+    "monetization": "freemium",
+    "features": ["funny video", "meme effects", "captions", "clip remix"],
+    "features_cn": ["搞笑视频", "沙雕特效", "字幕", "视频接龙"],
+    "keywords": ["funny", "搞笑", "video", "视频", "clip"]
+  },
+  {
+    "name": "Blessing Greeting Video",
+    "name_cn": "祝福视频贺卡",
+    "source": "App Store",
+    "category": "Lifestyle",
+    "description": "Create festival and birthday blessing videos and greeting cards to send to family and friends.",
+    "description_cn": "节日、生日一键生成祝福视频和电子贺卡，带送礼感，转发给亲友送祝福。",
+    "rating": 4.7,
+    "review_count": 41000,
+    "downloads": 4300000,
+    "monetization": "freemium",
+    "features": ["blessing video", "greeting card", "festival templates", "share"],
+    "features_cn": ["祝福视频", "贺卡", "节日模板", "一键转发"],
+    "keywords": ["blessing", "祝福", "greeting", "节日", "新年"]
+  }
+]

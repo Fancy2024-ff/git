@@ -1,64 +1,63 @@
 # Code Structure
 
+> 架构为 capability-domain（core 能力域 + pipeline step）。历史 `agents/` 架构说明
+> 见 `docs/archive/`，不代表当前架构。
+
 ## 项目结构
 
 ```
 miniapp-factory/
-├── scripts/
-│   └── run_demo_pipeline.py      ← 主入口（9-step pipeline）
+├── pyproject.toml                 ← Python packaging（core + apps 单一依赖清单）
+├── apps/
+│   ├── api/main.py                ← FastAPI 后端统一入口
+│   ├── api/tests/                 ← API 回归测试（auth/real-inputs/path-traversal/ws）
+│   └── web/                       ← Vue 3 前端控制台
 │
-├── agents/                        ← LLM Agent 层（LangChain, 待完全接入）
-│   ├── server.py                  ← FastAPI 后端 API
-│   ├── config/settings.py         ← 配置
-│   ├── shared/                    ← 模型、数据库、LLM 封装
-│   ├── discovery/                 ← 发现 Agent + 爬虫
-│   ├── research/                  ← 分析 Agent
-│   ├── coding/                    ← 代码生成 Agent
-│   ├── qa/                        ← 质检 Agent
-│   ├── publisher/                 ← 上架 Agent
-│   ├── review/                    ← 复盘 Agent
-│   └── orchestrator/              ← LangGraph 流水线
-│
-├── generator/                     ← 代码生成模板
-│   ├── src/templates/base/        ← uni-app 基础骨架
-│   ├── src/templates/ai-tool/     ← AI 工具类页面
-│   ├── src/templates/ai-chat/     ← AI 对话类页面
-│   └── src/templates/ai-image/    ← AI 图片类页面
-│
-├── dashboard/                     ← Vue 3 前端
-│   └── src/
-│       ├── App.vue                ← 主页面
-│       ├── services/api.ts        ← API 客户端
-│       └── components/            ← UI 组件
+├── core/                          ← 唯一核心业务层（能力域架构）
+│   ├── pipeline/runner.py         ← 编排层（只 step 编排，不含业务规则）
+│   ├── opportunity/               ← 机会发现 + 评分决策
+│   │   ├── scrapers/              ← App Store / Google Play / 小程序 抓取
+│   │   ├── demand_analysis.py     ← 需求强度分析
+│   │   ├── gap_analysis.py        ← 平台覆盖缺口
+│   │   ├── scoring.py             ← Opportunity Score
+│   │   ├── viral_score.py         ← Viral Score 传播力评分
+│   │   └── classifier.py          ← 题材归类 + 模板选择
+│   ├── generator/                 ← 唯一生成真源
+│   │   ├── prd_builder.py         ← PRD 生成
+│   │   └── src/templates/         ← base + ai-* + *-viral 模板工厂
+│   ├── growth/                    ← growth-plan.md / share-strategy.md
+│   ├── qa/                        ← engineering / growth / compliance / readiness
+│   ├── publisher/                 ← 上架材料 + Telegram 部署
+│   ├── platforms/                 ← 平台规则与差异
+│   ├── integrations/              ← 外部服务接入（LLM 等）
+│   ├── runtime/                   ← config / context / artifacts / database / manifest
+│   └── shared/                    ← 跨域 schema / types
 │
 ├── data/
 │   ├── samples/apps.json          ← 样例数据
-│   ├── real_inputs/               ← 真实导入数据
+│   ├── inputs/real/               ← 真实导入数据
 │   ├── platforms/                 ← 平台库
 │   ├── platform-auth/             ← 平台授权配置
 │   └── outputs/                   ← 每次运行的产物
 │
 └── docs/                          ← 文档
-    ├── AGENT_MAP.md               ← Agent 说明
-    ├── PROMPT_AND_RULES.md        ← 评分规则
-    ├── production-architecture.md ← 生产架构
-    └── publish-automation-plan.md ← 上架自动化规划
 ```
 
 ## 主要入口
 
 | 场景 | 命令 | 说明 |
 |------|------|------|
-| 运行 pipeline | `python scripts/run_demo_pipeline.py --mode demo` | 样例数据 |
-| 运行 pipeline | `python scripts/run_demo_pipeline.py --mode real` | 真实数据 |
-| 启动后端 | `cd agents && python server.py` | FastAPI on :8000 |
-| 启动前端 | `cd dashboard && npm run dev` | Vite on :5173 |
+| 运行 pipeline | `python core/pipeline/runner.py --mode demo` | 样例数据 |
+| 运行 pipeline | `python core/pipeline/runner.py --mode real` | 真实数据 |
+| 启动后端 | `python apps/api/main.py` | FastAPI on :8000 |
+| 启动前端 | `cd apps/web && npm run dev` | Vite on :5173 |
 
 ## 数据流
 
 ```
 apps.json → MarketInput → DemandAnalysis → GapCheck → OpportunityScore
-  → PRDAgent → CodegenAgent → PublishMaterials → PublishPackage → QA
+  → ViralScore → PRD → Codegen → PublishMaterials → Growth → PublishPackage
+  → EngineeringQA → GrowthComplianceQA → Readiness
   → data/outputs/{jobId}/
       candidate.json
       analysis.json
